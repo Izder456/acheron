@@ -8,6 +8,7 @@
 
 #include <type_traits>
 
+#include "OrderedJson.hpp"
 #include "Snowflake.hpp"
 
 #if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
@@ -37,7 +38,7 @@ struct is_qflags<::Acheron::Compat::Flags<T>> : std::true_type
 
 template <typename T>
 concept Serializable = requires(const T &t) {
-    { t.toJson() } -> std::convertible_to<QJsonObject>;
+    { t.toJson() } -> std::convertible_to<OrderedJson>;
 };
 
 template <typename T>
@@ -195,10 +196,10 @@ protected:
     template <typename T>
     static QJsonValue toJsonValue(const T &value)
     {
-        if constexpr (Serializable<T>) {
-            return value.toJson();
-        } else if constexpr (std::is_same_v<T, bool>) {
+        if constexpr (std::is_same_v<T, bool>) {
             return value;
+        } else if constexpr (std::is_same_v<T, Snowflake>) {
+            return QString::number(value);
         } else if constexpr (std::unsigned_integral<T>) {
             return static_cast<qint64>(value);
         } else if constexpr (std::is_enum_v<T> || QFlagType<T>) {
@@ -208,48 +209,52 @@ protected:
         }
     }
 
+    template <typename T>
+    static void insertValue(OrderedJson &object, const QString &key, const T &value)
+    {
+        if constexpr (Serializable<T>) {
+            object.insert(key, value.toJson());
+        } else if constexpr (MapLike<T>) {
+            OrderedJson mapObject;
+            for (auto it = value.begin(); it != value.end(); ++it) {
+                if constexpr (std::is_same_v<typename T::key_type, Snowflake>)
+                    insertValue(mapObject, QString::number(it.key()), it.value());
+                else
+                    insertValue(mapObject, it.key(), it.value());
+            }
+            object.insert(key, mapObject);
+        } else if constexpr (std::is_same_v<T, QByteArray>) {
+            OrderedJson::Array array;
+            for (unsigned char byte : value)
+                array.append(static_cast<int>(byte));
+            object.insert(key, array);
+        } else if constexpr (!std::is_same_v<T, QString> && ListLike<T>) {
+            OrderedJson::Array array;
+            for (const auto &element : value) {
+                if constexpr (Serializable<typename T::value_type>)
+                    array.append(element.toJson());
+                else
+                    array.append(toJsonValue(element));
+            }
+            object.insert(key, array);
+        } else {
+            object.insert(key, toJsonValue(value));
+        }
+    }
+
     template <typename T, bool IsOptional, bool IsNullable>
-    static void insert(QJsonObject &object, const QString &key,
+    static void insert(OrderedJson &object, const QString &key,
                        const Field<T, IsOptional, IsNullable> &field)
     {
         if (field.isUndefined())
             return;
 
         if (field.isNull()) {
-            object[key] = QJsonValue::Null;
+            object.insert(key, QJsonValue::Null);
             return;
         }
 
-        if constexpr (MapLike<T>) {
-            QJsonObject mapObject;
-            const auto &map = field.get();
-
-            for (auto it = map.begin(); it != map.end(); ++it) {
-                QString keyStr;
-
-                if constexpr (std::is_same_v<typename T::key_type, Snowflake>) {
-                    keyStr = QString::number(it.key());
-                } else {
-                    keyStr = it.key();
-                }
-
-                mapObject[keyStr] = toJsonValue(it.value());
-            }
-            object[key] = mapObject;
-        } else if constexpr (std::is_same_v<T, QByteArray>) {
-            QJsonArray array;
-            for (unsigned char byte : field.get())
-                array.append(static_cast<int>(byte));
-            object[key] = array;
-        } else if constexpr (!std::is_same_v<T, QString> && ListLike<T>) {
-            QJsonArray array;
-            for (const auto &element : field.get()) {
-                array.append(toJsonValue(element));
-            }
-            object[key] = array;
-        } else {
-            object[key] = toJsonValue(field.get());
-        }
+        insertValue(object, key, field.get());
     }
 
     template <typename T>

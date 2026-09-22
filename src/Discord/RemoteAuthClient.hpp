@@ -7,6 +7,7 @@
 #include <curl/curl.h>
 
 #include "CaptchaResolver.hpp"
+#include "Core/OrderedJson.hpp"
 #include "Core/ProxyConfig.hpp"
 
 #include <atomic>
@@ -65,7 +66,7 @@ private:
     void handlePendingLogin(const QJsonObject &obj);
     void postLogin(const QString &ticket, std::optional<CaptchaSolution> solution, int attempt);
 
-    void send(const QJsonObject &obj);
+    void send(const Core::OrderedJson &obj);
 
     void fail(RemoteAuthError error);
     void succeed(const QString &token);

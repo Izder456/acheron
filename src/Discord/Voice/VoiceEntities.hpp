@@ -6,6 +6,7 @@
 #include <QStringList>
 
 #include "Core/JsonUtils.hpp"
+#include "Core/OrderedJson.hpp"
 #include "Core/Snowflake.hpp"
 #include "VoiceEnums.hpp"
 
@@ -53,9 +54,9 @@ struct Codec : Core::JsonUtils::JsonObject
     Field<bool, true> encode;
     Field<bool, true> decode;
 
-    QJsonObject toJson() const
+    Core::OrderedJson toJson() const
     {
-        QJsonObject obj;
+        Core::OrderedJson obj;
         insert(obj, "name", name);
         insert(obj, "payload_type", payloadType);
         insert(obj, "priority", priority);
@@ -75,16 +76,16 @@ struct SelectProtocolData : Core::JsonUtils::JsonObject
     Field<QString> mode;
     Field<QList<Codec>> codecs;
 
-    QJsonObject toJson() const
+    Core::OrderedJson toJson() const
     {
-        QJsonObject data;
+        Core::OrderedJson data;
         insert(data, "address", address);
         insert(data, "port", port);
         insert(data, "mode", mode);
 
-        QJsonObject obj;
+        Core::OrderedJson obj;
         insert(obj, "protocol", protocol);
-        obj["data"] = data;
+        obj.insert("data", data);
         insert(obj, "address", address);
         insert(obj, "port", port);
         insert(obj, "mode", mode);
@@ -126,9 +127,9 @@ struct SpeakingData : Core::JsonUtils::JsonObject
         return data;
     }
 
-    QJsonObject toJson() const
+    Core::OrderedJson toJson() const
     {
-        QJsonObject obj;
+        Core::OrderedJson obj;
         insert(obj, "speaking", speaking);
         insert(obj, "delay", delay);
         insert(obj, "ssrc", ssrc);
@@ -161,31 +162,35 @@ struct VoiceIdentifyData : Core::JsonUtils::JsonObject
     Field<QString> token;
     Field<int> maxDaveProtocolVersion = 1;
 
-    QJsonObject toJson() const
+    Core::OrderedJson toJson() const
     {
-        QJsonObject obj;
-        obj["channel_id"] = QString::number(channelId.get());
-        obj["server_id"] = QString::number(serverId.get());
-        obj["session_id"] = sessionId.get();
-        obj["token"] = token.get();
-        obj["user_id"] = QString::number(userId.get());
-        obj["max_dave_protocol_version"] = maxDaveProtocolVersion.get();
+        Core::OrderedJson obj;
+        insert(obj, "server_id", serverId);
+        insert(obj, "channel_id", channelId);
+        insert(obj, "user_id", userId);
+        insert(obj, "session_id", sessionId);
+        insert(obj, "token", token);
+        insert(obj, "max_dave_protocol_version", maxDaveProtocolVersion);
         return obj;
     }
 };
 
 struct VoiceResumeData : Core::JsonUtils::JsonObject
 {
-    Field<Core::Snowflake> serverId;
-    Field<QString> sessionId;
     Field<QString> token;
+    Field<QString> sessionId;
+    Field<Core::Snowflake> serverId;
+    Field<Core::Snowflake> channelId;
+    Field<int> seqAck;
 
-    QJsonObject toJson() const
+    Core::OrderedJson toJson() const
     {
-        QJsonObject obj;
-        obj["server_id"] = QString::number(serverId.get());
-        insert(obj, "session_id", sessionId);
+        Core::OrderedJson obj;
         insert(obj, "token", token);
+        insert(obj, "session_id", sessionId);
+        insert(obj, "server_id", serverId);
+        insert(obj, "channel_id", channelId);
+        insert(obj, "seq_ack", seqAck);
         return obj;
     }
 };

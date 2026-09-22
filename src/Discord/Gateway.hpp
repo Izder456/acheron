@@ -108,7 +108,7 @@ signals:
     void gatewaySessionsReplace(const QList<UserSession> &data);
 
 private:
-    void sendPayload(const QJsonObject &obj);
+    void sendPayload(const Core::OrderedJson &obj);
     void sendPayload(const QByteArray &data);
 
     // this function is called by the network thread

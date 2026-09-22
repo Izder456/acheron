@@ -62,7 +62,7 @@ signals:
     void daveEpochPrepare(int protocolVersion, int epoch);
 
 private:
-    void sendPayload(const QJsonObject &obj);
+    void sendPayload(VoiceOpCode op, const Core::OrderedJson &d);
     void sendPayload(const QByteArray &data);
 
     void onPayloadReceived(const QJsonObject &root);

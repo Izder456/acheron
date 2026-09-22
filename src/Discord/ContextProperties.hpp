@@ -2,10 +2,9 @@
 
 #include <QByteArray>
 #include <QJsonValue>
-#include <QList>
 #include <QString>
 
-#include <utility>
+#include "Core/OrderedJson.hpp"
 
 namespace Acheron {
 namespace Discord {
@@ -21,7 +20,7 @@ public:
     QByteArray toHeaderValue() const;
 
 private:
-    QList<std::pair<QString, QJsonValue>> entries;
+    Core::OrderedJson json;
 };
 
 } // namespace Discord

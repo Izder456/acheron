@@ -77,23 +77,16 @@ void VoiceGateway::sendSelectProtocol(const QString &address, int port, const QS
     data.mode = mode;
     data.codecs = { opus };
 
-    QJsonObject obj;
-    obj["op"] = static_cast<int>(VoiceOpCode::SELECT_PROTOCOL);
-    obj["d"] = data.toJson();
-    sendPayload(obj);
+    sendPayload(VoiceOpCode::SELECT_PROTOCOL, data.toJson());
 }
 
 void VoiceGateway::sendSpeaking(int flags, int delay, quint32 ssrc)
 {
-    QJsonObject d;
-    d["speaking"] = flags;
-    d["delay"] = delay;
-    d["ssrc"] = static_cast<qint64>(ssrc);
-
-    QJsonObject obj;
-    obj["op"] = static_cast<int>(VoiceOpCode::SPEAKING);
-    obj["d"] = d;
-    sendPayload(obj);
+    Core::OrderedJson d;
+    d.insert("speaking", flags);
+    d.insert("delay", delay);
+    d.insert("ssrc", static_cast<qint64>(ssrc));
+    sendPayload(VoiceOpCode::SPEAKING, d);
 }
 
 void VoiceGateway::sendBinaryPayload(int opcode, const QByteArray &data)
@@ -110,29 +103,25 @@ void VoiceGateway::sendBinaryPayload(int opcode, const QByteArray &data)
 
 void VoiceGateway::sendDaveReadyForTransition(int transitionId)
 {
-    QJsonObject d;
-    d["transition_id"] = transitionId;
-
-    QJsonObject obj;
-    obj["op"] = static_cast<int>(VoiceOpCode::DAVE_PROTOCOL_READY_FOR_TRANSITION);
-    obj["d"] = d;
-    sendPayload(obj);
+    Core::OrderedJson d;
+    d.insert("transition_id", transitionId);
+    sendPayload(VoiceOpCode::DAVE_PROTOCOL_READY_FOR_TRANSITION, d);
 }
 
 void VoiceGateway::sendDaveInvalidCommitWelcome(int transitionId)
 {
-    QJsonObject d;
-    d["transition_id"] = transitionId;
-
-    QJsonObject obj;
-    obj["op"] = static_cast<int>(VoiceOpCode::DAVE_MLS_INVALID_COMMIT_WELCOME);
-    obj["d"] = d;
-    sendPayload(obj);
+    Core::OrderedJson d;
+    d.insert("transition_id", transitionId);
+    sendPayload(VoiceOpCode::DAVE_MLS_INVALID_COMMIT_WELCOME, d);
 }
 
-void VoiceGateway::sendPayload(const QJsonObject &obj)
+void VoiceGateway::sendPayload(VoiceOpCode op, const Core::OrderedJson &d)
 {
-    QByteArray json = QJsonDocument(obj).toJson(QJsonDocument::Compact);
+    Core::OrderedJson obj;
+    obj.insert("op", static_cast<int>(op));
+    obj.insert("d", d);
+
+    QByteArray json = obj.toBytes();
     qCDebug(LogVoice) << "Voice >>>" << json;
     sendPayload(json);
 }
@@ -312,11 +301,7 @@ void VoiceGateway::identify()
     id.userId = userId;
     id.sessionId = sessionId;
     id.token = token;
-
-    QJsonObject obj;
-    obj["op"] = static_cast<int>(VoiceOpCode::IDENTIFY);
-    obj["d"] = id.toJson();
-    sendPayload(obj);
+    sendPayload(VoiceOpCode::IDENTIFY, id.toJson());
 }
 
 void VoiceGateway::resume()
@@ -324,14 +309,12 @@ void VoiceGateway::resume()
     qCInfo(LogVoice) << "Sending voice Resume";
 
     VoiceResumeData data;
-    data.serverId = serverId;
-    data.sessionId = sessionId;
     data.token = token;
-
-    QJsonObject obj;
-    obj["op"] = static_cast<int>(VoiceOpCode::RESUME);
-    obj["d"] = data.toJson();
-    sendPayload(obj);
+    data.sessionId = sessionId;
+    data.serverId = serverId;
+    data.channelId = channelId;
+    data.seqAck = lastReceivedSeq.load();
+    sendPayload(VoiceOpCode::RESUME, data.toJson());
 }
 
 bool VoiceGateway::isFatalCloseCode(VoiceCloseCode code) const
@@ -563,14 +546,10 @@ void VoiceGateway::heartbeatLoop()
         quint64 nonce = static_cast<quint64>(QDateTime::currentMSecsSinceEpoch());
         lastSentNonce = nonce;
 
-        QJsonObject d;
-        d["t"] = static_cast<qint64>(nonce);
-        d["seq_ack"] = lastReceivedSeq.load();
-
-        QJsonObject obj;
-        obj["op"] = static_cast<int>(VoiceOpCode::HEARTBEAT);
-        obj["d"] = d;
-        sendPayload(obj);
+        Core::OrderedJson d;
+        d.insert("t", static_cast<qint64>(nonce));
+        d.insert("seq_ack", lastReceivedSeq.load());
+        sendPayload(VoiceOpCode::HEARTBEAT, d);
 
         {
             std::unique_lock lock(heartbeatMutex);

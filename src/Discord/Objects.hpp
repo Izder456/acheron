@@ -1,12 +1,13 @@
 #pragma once
 
+#include <QJsonObject>
 #include <QString>
 #include <QVariantMap>
-#include <QJsonObject>
 
 #include <optional>
 
 #include "Core/JsonUtils.hpp"
+#include "Core/OrderedJson.hpp"
 
 #ifdef compress // really bruh
 #undef compress
@@ -39,9 +40,9 @@ struct ClientProperties : Acheron::Core::JsonUtils::JsonObject
     Field<QString, true> gatewayConnectReasons;
     Field<QString, true> clientHeartbeatSessionId;
 
-    QJsonObject toJson() const
+    Core::OrderedJson toJson() const
     {
-        QJsonObject obj;
+        Core::OrderedJson obj;
         insert(obj, "os", os);
         insert(obj, "browser", browser);
         insert(obj, "device", device);
@@ -74,12 +75,12 @@ struct UpdatePresence : Acheron::Core::JsonUtils::JsonObject
     Field<int> since;
     Field<bool> afk;
 
-    QJsonObject toJson() const
+    Core::OrderedJson toJson() const
     {
-        QJsonObject obj;
+        Core::OrderedJson obj;
         insert(obj, "status", status);
         insert(obj, "since", since);
-        obj["activities"] = QJsonArray();
+        obj.insert("activities", QJsonArray());
         insert(obj, "afk", afk);
         return obj;
     }
@@ -89,10 +90,10 @@ struct ClientState : Acheron::Core::JsonUtils::JsonObject
 {
     // Map guild_versions;
 
-    QJsonObject toJson() const
+    Core::OrderedJson toJson() const
     {
-        QJsonObject obj;
-        obj["guild_versions"] = QJsonObject();
+        Core::OrderedJson obj;
+        obj.insert("guild_versions", Core::OrderedJson());
         return obj;
     }
 };

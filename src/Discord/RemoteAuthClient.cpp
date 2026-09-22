@@ -260,15 +260,13 @@ void RemoteAuthClient::heartbeatLoop()
                 break;
         }
 
-        QJsonObject hb;
-        hb["op"] = "heartbeat";
-        send(hb);
+        send(Core::OrderedJson().insert("op", "heartbeat"));
     }
 }
 
-void RemoteAuthClient::send(const QJsonObject &obj)
+void RemoteAuthClient::send(const Core::OrderedJson &obj)
 {
-    QByteArray data = QJsonDocument(obj).toJson(QJsonDocument::Compact);
+    QByteArray data = obj.toBytes();
     CurlUtils::wsSend(curl, curlMutex, data.constData(), data.size(), CURLWS_TEXT, "remote auth");
 }
 
@@ -310,9 +308,9 @@ void RemoteAuthClient::handleHello(const QJsonObject &obj)
     if (timeoutMs > 0)
         QTimer::singleShot(timeoutMs + 2000, this, [this] { fail(RemoteAuthError::TimedOut); });
 
-    QJsonObject init;
-    init["op"] = "init";
-    init["encoded_public_key"] = QString::fromLatin1(publicKeyDer().toBase64());
+    Core::OrderedJson init;
+    init.insert("op", "init");
+    init.insert("encoded_public_key", QString::fromLatin1(publicKeyDer().toBase64()));
     send(init);
 }
 
@@ -327,9 +325,9 @@ void RemoteAuthClient::handleNonceProof(const QJsonObject &obj)
 
     QByteArray proof = nonce.toBase64(QByteArray::Base64UrlEncoding | QByteArray::OmitTrailingEquals);
 
-    QJsonObject reply;
-    reply["op"] = "nonce_proof";
-    reply["nonce"] = QString::fromLatin1(proof);
+    Core::OrderedJson reply;
+    reply.insert("op", "nonce_proof");
+    reply.insert("nonce", QString::fromLatin1(proof));
     send(reply);
 }
 

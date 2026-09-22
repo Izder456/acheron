@@ -7,7 +7,6 @@
 #include <QCoreApplication>
 #include <QDir>
 #include <QFile>
-#include <QJsonDocument>
 #include <QLocale>
 #include <QRegularExpression>
 #include <QTimeZone>
@@ -189,13 +188,11 @@ void appendDiscordHeaders(curl_slist **headers, const ClientIdentity &identity, 
 
     ClientPropertiesBuildParams params;
     params.includeClientHeartbeatSessionId = true;
-    QString superProperties = QJsonDocument(identity.buildClientProperties(params).toJson())
-                                      .toJson(QJsonDocument::Compact)
-                                      .toBase64();
+    QByteArray superProperties = identity.buildClientProperties(params).toJson().toBytes().toBase64();
 
     *headers = curl_slist_append(*headers, ("X-Discord-Timezone: " + tz).toUtf8().constData());
     *headers = curl_slist_append(*headers, ("X-Discord-Locale: " + locale).toUtf8().constData());
-    *headers = curl_slist_append(*headers, ("X-Super-Properties: " + superProperties).toUtf8().constData());
+    *headers = curl_slist_append(*headers, ("X-Super-Properties: " + superProperties).constData());
     *headers = curl_slist_append(*headers, "X-Debug-Options: bugReporterEnabled");
     *headers = curl_slist_append(*headers, ("Referer: " + referer).toUtf8().constData());
 }

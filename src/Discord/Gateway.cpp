@@ -107,9 +107,9 @@ void Gateway::subscribeToGuild(Core::Snowflake guildId, Core::Snowflake channelI
     sendPayload(data.toJson());
 }
 
-void Gateway::sendPayload(const QJsonObject &obj)
+void Gateway::sendPayload(const Core::OrderedJson &obj)
 {
-    sendPayload(QJsonDocument(obj).toJson(QJsonDocument::Compact));
+    sendPayload(obj.toBytes());
 }
 
 void Gateway::sendPayload(const QByteArray &data)
@@ -659,7 +659,10 @@ void Gateway::requestGuildMembers(Core::Snowflake guildId, const QList<Core::Sno
 void Gateway::sendVoiceStateUpdate(Core::Snowflake guildId, Core::Snowflake channelId, bool selfMute, bool selfDeaf)
 {
     UpdateVoiceState msg;
-    msg.guildId = guildId;
+    if (guildId.isValid())
+        msg.guildId = guildId;
+    else
+        msg.guildId = nullptr;
     if (channelId.isValid())
         msg.channelId = channelId;
     else

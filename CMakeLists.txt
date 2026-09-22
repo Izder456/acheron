@@ -156,6 +156,7 @@ set(PROJECT_SOURCES
     resources.qrc
     src/main.cpp
     src/Core/Snowflake.cpp
+    src/Core/OrderedJson.cpp
     src/Core/ProxyConfig.cpp
     src/Core/ClientInstance.cpp
     src/Core/Session.cpp
@@ -339,6 +340,12 @@ if(BUILD_TESTS)
     target_link_libraries(TestUnicodeEmoji PRIVATE Qt::Core Qt::Test)
     target_include_directories(TestUnicodeEmoji PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
     add_test(NAME UnicodeEmojiTests COMMAND TestUnicodeEmoji)
+
+    qt_add_executable(TestOrderedJson tests/tst_OrderedJson.cpp src/Core/OrderedJson.cpp
+        src/Core/Snowflake.cpp src/Discord/ContextProperties.cpp)
+    target_link_libraries(TestOrderedJson PRIVATE Qt::Core Qt::Test)
+    target_include_directories(TestOrderedJson PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    add_test(NAME OrderedJsonTests COMMAND TestOrderedJson)
 
     qt_add_executable(TestProto tests/tst_Proto.cpp src/Proto/ProtoReader.cpp
         src/Proto/ProtoWriter.cpp src/Proto/FrecencySettings.cpp src/Core/Logging.cpp)

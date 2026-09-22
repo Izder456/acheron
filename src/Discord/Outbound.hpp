@@ -10,11 +10,11 @@ struct Outbound : public T
 {
     static constexpr OpCode opcode = op;
 
-    QJsonObject toJson() const
+    Core::OrderedJson toJson() const
     {
-        QJsonObject obj;
-        obj["op"] = static_cast<int>(opcode);
-        obj["d"] = T::toJson();
+        Core::OrderedJson obj;
+        obj.insert("op", static_cast<int>(opcode));
+        obj.insert("d", T::toJson());
         return obj;
     }
 };
@@ -28,9 +28,9 @@ struct IdentifyData : Core::JsonUtils::JsonObject
     Field<bool> compress;
     Field<ClientState> clientState;
 
-    QJsonObject toJson() const
+    Core::OrderedJson toJson() const
     {
-        QJsonObject obj;
+        Core::OrderedJson obj;
         insert(obj, "token", token);
         insert(obj, "capabilities", capabilities);
         insert(obj, "properties", properties);
@@ -48,11 +48,11 @@ struct QoSPayload : Core::JsonUtils::JsonObject
     Field<bool> active;
     Field<QList<QString>> reasons;
 
-    QJsonObject toJson() const
+    Core::OrderedJson toJson() const
     {
-        QJsonObject obj;
-        insert(obj, "ver", ver);
+        Core::OrderedJson obj;
         insert(obj, "active", active);
+        insert(obj, "ver", ver);
         insert(obj, "reasons", reasons);
         return obj;
     }
@@ -63,9 +63,9 @@ struct QoSHeartbeatData : Core::JsonUtils::JsonObject
     Field<int, false, true> seq;
     Field<QoSPayload> qos;
 
-    QJsonObject toJson() const
+    Core::OrderedJson toJson() const
     {
-        QJsonObject obj;
+        Core::OrderedJson obj;
         insert(obj, "seq", seq);
         insert(obj, "qos", qos);
         return obj;
@@ -79,9 +79,9 @@ struct UpdateTimeSpentSessionIdData : Core::JsonUtils::JsonObject
     Field<QString> sessionId;
     Field<QString> clientLaunchId;
 
-    QJsonObject toJson() const
+    Core::OrderedJson toJson() const
     {
-        QJsonObject obj;
+        Core::OrderedJson obj;
         insert(obj, "initialization_timestamp", initializationTimestamp);
         insert(obj, "session_id", sessionId);
         insert(obj, "client_launch_id", clientLaunchId);
@@ -100,26 +100,22 @@ struct GuildSubscriptionsBulkData : Core::JsonUtils::JsonObject
         // channel_id -> list of [start, end] range pairs for member list subscriptions
         QMap<Core::Snowflake, QList<QPair<int, int>>> channels;
 
-        QJsonObject toJson() const
+        Core::OrderedJson toJson() const
         {
-            QJsonObject obj;
+            Core::OrderedJson obj;
             insert(obj, "typing", typing);
             insert(obj, "activities", activities);
             insert(obj, "threads", threads);
 
             if (!channels.isEmpty()) {
-                QJsonObject channelsObj;
+                Core::OrderedJson channelsObj;
                 for (auto it = channels.begin(); it != channels.end(); ++it) {
-                    QJsonArray rangesArr;
-                    for (const auto &range : it.value()) {
-                        QJsonArray pair;
-                        pair.append(range.first);
-                        pair.append(range.second);
-                        rangesArr.append(pair);
-                    }
-                    channelsObj[QString::number(it.key())] = rangesArr;
+                    Core::OrderedJson::Array ranges;
+                    for (const auto &range : it.value())
+                        ranges.append(Core::OrderedJson::Array().append(range.first).append(range.second));
+                    channelsObj.insert(QString::number(it.key()), ranges);
                 }
-                obj["channels"] = channelsObj;
+                obj.insert("channels", channelsObj);
             }
 
             return obj;
@@ -128,9 +124,9 @@ struct GuildSubscriptionsBulkData : Core::JsonUtils::JsonObject
 
     Field<QMap<Core::Snowflake, SubscriptionData>> subscriptions;
 
-    QJsonObject toJson() const
+    Core::OrderedJson toJson() const
     {
-        QJsonObject obj;
+        Core::OrderedJson obj;
         insert(obj, "subscriptions", subscriptions);
         return obj;
     }
@@ -140,27 +136,27 @@ using GuildSubscriptionsBulk =
 
 struct RequestForumUnreadsData : Core::JsonUtils::JsonObject
 {
-    Core::Snowflake guildId;
-    Core::Snowflake channelId; // the forum
+    Field<Core::Snowflake> guildId;
+    Field<Core::Snowflake> channelId; // the forum
     // (post id, message id or invalid if not acked)
     QList<QPair<Core::Snowflake, Core::Snowflake>> threads;
 
-    QJsonObject toJson() const
+    Core::OrderedJson toJson() const
     {
-        QJsonObject obj;
-        obj["guild_id"] = QString::number(guildId);
-        obj["channel_id"] = QString::number(channelId);
+        Core::OrderedJson obj;
+        insert(obj, "guild_id", guildId);
+        insert(obj, "channel_id", channelId);
 
-        QJsonArray arr;
+        Core::OrderedJson::Array arr;
         for (const auto &[threadId, ackMessageId] : threads) {
-            QJsonObject t;
-            t["thread_id"] = QString::number(threadId);
-            t["ack_message_id"] = ackMessageId.isValid()
-                                          ? QJsonValue(QString::number(ackMessageId))
-                                          : QJsonValue::Null;
+            Core::OrderedJson t;
+            t.insert("thread_id", QString::number(threadId));
+            t.insert("ack_message_id", ackMessageId.isValid()
+                                               ? QJsonValue(QString::number(ackMessageId))
+                                               : QJsonValue(QJsonValue::Null));
             arr.append(t);
         }
-        obj["threads"] = arr;
+        obj.insert("threads", arr);
         return obj;
     }
 };
@@ -172,9 +168,9 @@ struct RequestGuildMembersData : Core::JsonUtils::JsonObject
     Field<QList<Core::Snowflake>, true> userIds;
     Field<bool, true> presences;
 
-    QJsonObject toJson() const
+    Core::OrderedJson toJson() const
     {
-        QJsonObject obj;
+        Core::OrderedJson obj;
         insert(obj, "guild_id", guildId);
         insert(obj, "user_ids", userIds);
         insert(obj, "presences", presences);
@@ -189,9 +185,9 @@ struct ResumeData : Core::JsonUtils::JsonObject
     Field<QString> sessionId;
     Field<int, false, true> seq;
 
-    QJsonObject toJson() const
+    Core::OrderedJson toJson() const
     {
-        QJsonObject obj;
+        Core::OrderedJson obj;
         insert(obj, "token", token);
         insert(obj, "session_id", sessionId);
         insert(obj, "seq", seq);
@@ -202,24 +198,18 @@ using Resume = Outbound<OpCode::RESUME, ResumeData>;
 
 struct UpdateVoiceStateData : Core::JsonUtils::JsonObject
 {
-    Field<Core::Snowflake> guildId;
+    Field<Core::Snowflake, false, true> guildId;
     Field<Core::Snowflake, false, true> channelId;
     Field<bool> selfMute;
     Field<bool> selfDeaf;
     Field<bool, true> selfVideo;
     Field<VoiceFlags, true> flags;
 
-    QJsonObject toJson() const
+    Core::OrderedJson toJson() const
     {
-        QJsonObject obj;
-        if (guildId.get().isValid())
-            obj["guild_id"] = QString::number(guildId.get());
-        else
-            obj["guild_id"] = QJsonValue::Null;
-        if (channelId.isNull())
-            obj["channel_id"] = QJsonValue::Null;
-        else
-            obj["channel_id"] = QString::number(channelId.get());
+        Core::OrderedJson obj;
+        insert(obj, "guild_id", guildId);
+        insert(obj, "channel_id", channelId);
         insert(obj, "self_mute", selfMute);
         insert(obj, "self_deaf", selfDeaf);
         insert(obj, "self_video", selfVideo);
