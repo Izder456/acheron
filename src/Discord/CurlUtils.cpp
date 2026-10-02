@@ -122,6 +122,20 @@ QString getCertificatePath()
     return QString();
 }
 
+static QByteArray readCertificateBundle()
+{
+    const QString certPath = getCertificatePath();
+    if (certPath.isEmpty())
+        return {};
+
+    QFile file(certPath);
+    if (!file.open(QIODevice::ReadOnly)) {
+        qCWarning(LogNetwork) << "Cannot read certificate file" << certPath << ":" << file.errorString();
+        return {};
+    }
+    return file.readAll();
+}
+
 QString getUserAgent()
 {
     return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -151,9 +165,14 @@ QString getSystemLocale()
 
 void applyCommonOptions(CURL *curl)
 {
-    static const QString certPath = getCertificatePath();
-    if (!certPath.isEmpty())
-        curl_easy_setopt(curl, CURLOPT_CAINFO, certPath.toUtf8().constData());
+    static const QByteArray caBundle = readCertificateBundle();
+    if (!caBundle.isEmpty()) {
+        curl_blob blob;
+        blob.data = const_cast<char *>(caBundle.constData());
+        blob.len = static_cast<size_t>(caBundle.size());
+        blob.flags = CURL_BLOB_NOCOPY;
+        curl_easy_setopt(curl, CURLOPT_CAINFO_BLOB, &blob);
+    }
 #ifdef IS_CURL_IMPERSONATE
     curl_easy_impersonate(curl, getImpersonateTarget().toUtf8().constData(), 1);
 #endif
