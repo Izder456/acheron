@@ -203,15 +203,16 @@ void ChannelTreeView::contextMenuEvent(QContextMenuEvent *event)
     if (nodeType == ChannelNode::Type::Server) {
         Core::Snowflake ownerId(sourceIndex.data(ChannelTreeModel::OwnerIdRole).toULongLong());
         Core::Snowflake accountId = findAccountIdForIndex(sourceIndex);
+        Core::Snowflake guildId(sourceIndex.data(ChannelTreeModel::IdRole).toULongLong());
+
+        GuildSettingsAccess::addMenu(&menu, guildSettingsProvider, accountId, guildId, [this, accountId, guildId](GuildSettingsSection section) {
+            emit guildSettingsRequested(accountId, guildId, section);
+        });
 
         menu.addSeparator();
         QAction *leaveAction = menu.addAction(tr("Leave"));
         leaveAction->setEnabled(ownerId != accountId);
-        connect(leaveAction, &QAction::triggered, this, [this, sourceIndex]() {
-            Core::Snowflake accountId = findAccountIdForIndex(sourceIndex);
-            Core::Snowflake guildId(sourceIndex.data(ChannelTreeModel::IdRole).toULongLong());
-            emit leaveGuildRequested(accountId, guildId);
-        });
+        connect(leaveAction, &QAction::triggered, this, [this, accountId, guildId]() { emit leaveGuildRequested(accountId, guildId); });
     }
 
     QAction *markReadAction = menu.addAction(tr("Mark As Read"));
@@ -245,6 +246,11 @@ void ChannelTreeView::setAccountVoiceChannel(Core::Snowflake accountId, Core::Sn
 bool ChannelTreeView::isAccountInVoice(Core::Snowflake accountId) const
 {
     return accountVoiceChannels.contains(accountId);
+}
+
+void ChannelTreeView::setGuildSettingsProvider(GuildSettingsAccess::SectionsProvider provider)
+{
+    guildSettingsProvider = std::move(provider);
 }
 
 Core::Snowflake ChannelTreeView::findAccountIdForIndex(const QModelIndex &sourceIndex) const

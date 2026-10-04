@@ -204,6 +204,12 @@ CURL *RequestWorker::buildEasyHandle(TransferContext *ctx)
             headers = curl_slist_append(headers, ("Authorization: " + token).toUtf8().constData());
         if (!desc.multipart && !desc.body.isEmpty())
             headers = curl_slist_append(headers, "Content-Type: application/json");
+        if (!desc.originalMd5.isEmpty())
+            headers = curl_slist_append(headers, ("X-Discord-Original-MD5: " + desc.originalMd5).constData());
+        if (desc.auditLogReason) {
+            const QByteArray reason = encodeUriComponent(*desc.auditLogReason);
+            headers = curl_slist_append(headers, reason.isEmpty() ? "X-Audit-Log-Reason;" : ("X-Audit-Log-Reason: " + reason).constData());
+        }
         if (!desc.contextProperties.isEmpty())
             headers = curl_slist_append(headers, ("X-Context-Properties: " + desc.contextProperties).constData());
 
@@ -228,16 +234,25 @@ CURL *RequestWorker::buildEasyHandle(TransferContext *ctx)
     if (desc.multipart) {
         curl_mime *mime = curl_mime_init(curl);
 
-        // payload_json part
-        curl_mimepart *jsonPart = curl_mime_addpart(mime);
-        curl_mime_name(jsonPart, "payload_json");
-        curl_mime_data(jsonPart, desc.body.constData(), desc.body.size());
-        curl_mime_type(jsonPart, "application/json");
+        if (desc.formFields.isEmpty()) {
+            curl_mimepart *jsonPart = curl_mime_addpart(mime);
+            curl_mime_name(jsonPart, "payload_json");
+            curl_mime_data(jsonPart, desc.body.constData(), desc.body.size());
+            curl_mime_type(jsonPart, "application/json");
+        }
+
+        for (const auto &field : desc.formFields) {
+            curl_mimepart *fieldPart = curl_mime_addpart(mime);
+            const QByteArray value = field.second.toUtf8();
+            curl_mime_name(fieldPart, field.first.toUtf8().constData());
+            curl_mime_data(fieldPart, value.constData(), value.size());
+        }
 
         // file parts
         for (int i = 0; i < desc.files.size(); i++) {
             curl_mimepart *filePart = curl_mime_addpart(mime);
-            curl_mime_name(filePart, QString("files[%1]").arg(i).toUtf8().constData());
+            const QString partName = desc.files[i].fieldName.isEmpty() ? QString("files[%1]").arg(i) : desc.files[i].fieldName;
+            curl_mime_name(filePart, partName.toUtf8().constData());
             curl_mime_data(filePart, desc.files[i].data.constData(), desc.files[i].data.size());
             curl_mime_filename(filePart, desc.files[i].filename.toUtf8().constData());
             curl_mime_type(filePart, desc.files[i].mimeType.toUtf8().constData());

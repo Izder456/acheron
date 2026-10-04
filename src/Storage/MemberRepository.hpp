@@ -3,6 +3,8 @@
 #include <QSqlDatabase>
 #include <optional>
 
+class QSqlQuery;
+
 #include "BaseRepository.hpp"
 #include "Core/Snowflake.hpp"
 #include "Discord/Entities.hpp"
@@ -20,12 +22,15 @@ public:
                     QSqlDatabase &db);
     void saveMembers(Core::Snowflake guildId, const QList<Discord::Member> &members);
     void deleteMembersForGuild(Core::Snowflake guildId, QSqlDatabase &db);
+    void deleteMember(Core::Snowflake guildId, Core::Snowflake userId);
 
     std::optional<Discord::Member> getMember(Core::Snowflake guildId, Core::Snowflake userId);
+    QList<Discord::Member> getMembersWithUsers(Core::Snowflake guildId);
 
 private:
     static QString rolesToJson(const QList<Core::Snowflake> &roles);
     static QList<Core::Snowflake> rolesFromJson(const QString &json);
+    static Discord::Member readMember(const QSqlQuery &q, int firstColumn);
 };
 
 } // namespace Storage

@@ -43,6 +43,7 @@ public:
     [[nodiscard]] std::optional<Discord::Member> getMember(Snowflake guildId, Snowflake userId);
 
     [[nodiscard]] std::optional<QList<Snowflake>> getMemberRoles(Snowflake guildId, Snowflake userId);
+    [[nodiscard]] QList<Discord::Member> getKnownMembers(Snowflake guildId);
 
     void setRelationshipManager(RelationshipManager *manager);
 
@@ -58,6 +59,7 @@ public:
     void removeGuildMembers(Snowflake guildId);
 
     void saveMemberWithUser(Snowflake guildId, const Discord::Member &member);
+    void removeMember(Snowflake guildId, Snowflake userId);
 
     void loadNotesFromReady(const QHash<Snowflake, QString> &notes);
     void setCachedNote(Snowflake userId, const QString &note);

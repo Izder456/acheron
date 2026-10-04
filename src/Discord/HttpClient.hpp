@@ -1,6 +1,8 @@
 #pragma once
 
 #include <QObject>
+#include <QPair>
+#include <QUrl>
 
 #include <curl/curl.h>
 
@@ -11,6 +13,7 @@
 
 #include "CaptchaResolver.hpp"
 #include "ContextProperties.hpp"
+#include "Core/OrderedJson.hpp"
 #include "Core/ProxyConfig.hpp"
 
 namespace Acheron {
@@ -35,9 +38,22 @@ struct FileUpload
     QString filename;
     QByteArray data;
     QString mimeType;
+    QString fieldName;
 };
 
 using HttpCallback = std::function<void(const HttpResponse &)>;
+
+inline QByteArray encodeUriComponent(const QString &text)
+{
+    return QUrl::toPercentEncoding(text, "!'()*");
+}
+
+struct RequestOptions
+{
+    std::optional<ContextProperties> context;
+    std::optional<QString> auditLogReason;
+    QByteArray originalMd5;
+};
 
 class HttpClient : public QObject
 {
@@ -66,8 +82,16 @@ public:
     void put(const QString &endpoint, const QJsonObject &body, HttpCallback callback);
     void delete_(const QString &endpoint, HttpCallback callback);
     void delete_(const QString &endpoint, const QJsonObject &body, HttpCallback callback);
+
+    void post(const QString &endpoint, const Core::OrderedJson &body, HttpCallback callback);
+    void put(const QString &endpoint, const Core::OrderedJson &body, HttpCallback callback);
+    void patch(const QString &endpoint, const Core::OrderedJson &body, HttpCallback callback);
+    void patch(const QString &endpoint, const Core::OrderedJson::Array &body, HttpCallback callback);
+    void send(Method method, const QString &endpoint, const QByteArray &jsonBody, const RequestOptions &options, HttpCallback callback);
     void postMultipart(const QString &endpoint, const QJsonObject &jsonPayload,
                        const QList<FileUpload> &files, HttpCallback callback);
+    void postForm(const QString &endpoint, const QList<QPair<QString, QString>> &fields,
+                  const QList<FileUpload> &files, const RequestOptions &options, HttpCallback callback);
     // for gcp uploads
     void putExternalFile(const QString &absoluteUrl, const QString &filePath,
                          const QString &contentType, HttpCallback callback,
@@ -79,10 +103,11 @@ public:
                      std::shared_ptr<std::atomic<bool>> cancelFlag = {});
 
 private:
-    void executeRequest(Method method, const QString &url, const QByteArray &data,
-                        HttpCallback callback, const QByteArray &contextProperties = {});
+    void executeRequest(Method method, const QString &url, const QByteArray &data, HttpCallback callback, const RequestOptions &options = {});
     void executeMultipartRequest(const QString &url, const QByteArray &jsonData,
-                                 const QList<FileUpload> &files, HttpCallback callback);
+                                 const QList<FileUpload> &files, HttpCallback callback,
+                                 const QList<QPair<QString, QString>> &formFields = {},
+                                 const RequestOptions &options = {});
     void submitExternalPut(RequestDescriptor &descriptor,
                            std::function<void(qint64, qint64)> progress);
 

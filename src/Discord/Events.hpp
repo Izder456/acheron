@@ -309,6 +309,86 @@ struct GuildMemberUpdate : Core::JsonUtils::JsonObject
     }
 };
 
+struct GuildMemberAdd : Core::JsonUtils::JsonObject
+{
+    Field<Core::Snowflake> guildId;
+    Field<Member> member;
+
+    static GuildMemberAdd fromJson(const QJsonObject &obj)
+    {
+        GuildMemberAdd event;
+        get(obj, "guild_id", event.guildId);
+        event.member = Member::fromJson(obj);
+        return event;
+    }
+};
+
+struct GuildMemberRemove : Core::JsonUtils::JsonObject
+{
+    Field<Core::Snowflake> guildId;
+    Field<User> user;
+
+    static GuildMemberRemove fromJson(const QJsonObject &obj)
+    {
+        GuildMemberRemove event;
+        get(obj, "guild_id", event.guildId);
+        get(obj, "user", event.user);
+        return event;
+    }
+};
+
+struct GuildBanEvent : Core::JsonUtils::JsonObject
+{
+    Field<Core::Snowflake> guildId;
+    Field<User> user;
+
+    static GuildBanEvent fromJson(const QJsonObject &obj)
+    {
+        GuildBanEvent event;
+        get(obj, "guild_id", event.guildId);
+        get(obj, "user", event.user);
+        return event;
+    }
+};
+
+struct GuildStickersUpdate : Core::JsonUtils::JsonObject
+{
+    Field<Core::Snowflake> guildId;
+    Field<QList<Sticker>> stickers;
+
+    static GuildStickersUpdate fromJson(const QJsonObject &obj)
+    {
+        GuildStickersUpdate event;
+        get(obj, "guild_id", event.guildId);
+        get(obj, "stickers", event.stickers);
+        return event;
+    }
+};
+
+struct GuildPruneUpdate : Core::JsonUtils::JsonObject
+{
+    Field<Core::Snowflake> guildId;
+    Field<int, true> days;
+    Field<int, true> pruneCount;
+    Field<bool, true> isPreview;
+    Field<bool, true> isFinished;
+    Field<QList<Core::Snowflake>, true> includeRoles;
+
+    static GuildPruneUpdate fromJson(const QJsonObject &obj)
+    {
+        GuildPruneUpdate event;
+        get(obj, "guild_id", event.guildId);
+        const QJsonObject prune = obj.value("prune").toObject();
+        get(prune, "days", event.days);
+        if (prune.contains("prune_count"))
+            event.pruneCount = prune.value("prune_count").toVariant().toInt();
+        get(prune, "is_preview", event.isPreview);
+        get(prune, "is_finished", event.isFinished);
+        get(prune, "include_roles", event.includeRoles);
+        return event;
+    }
+};
+
 struct MessageDelete : Core::JsonUtils::JsonObject
 {
     Field<Core::Snowflake> id;

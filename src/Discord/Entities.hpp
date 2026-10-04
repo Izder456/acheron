@@ -31,6 +31,8 @@ struct User : Core::JsonUtils::JsonObject
     Field<int, true, true> accentColor;
     Field<int, true> publicFlags;
     Field<PremiumType, true, true> premiumType;
+    Field<QString, true> discriminator;
+    Field<bool, true> mfaEnabled;
 
     static User fromJson(const QJsonObject &obj)
     {
@@ -44,7 +46,16 @@ struct User : Core::JsonUtils::JsonObject
         get(obj, "accent_color", user.accentColor);
         get(obj, "public_flags", user.publicFlags);
         get(obj, "premium_type", user.premiumType);
+        get(obj, "discriminator", user.discriminator);
+        get(obj, "mfa_enabled", user.mfaEnabled);
         return user;
+    }
+
+    QString tag() const
+    {
+        if (discriminator.hasValue() && !discriminator->isEmpty() && discriminator.get() != QLatin1String("0"))
+            return username.get() + QLatin1Char('#') + discriminator.get();
+        return username;
     }
 
     QString getDisplayName() const
@@ -319,8 +330,11 @@ struct Member : Core::JsonUtils::JsonObject
     Field<int, true> flags;
     Field<bool, true> pending;
     Field<QDateTime, true, true> communicationDisabledUntil;
+    Field<QDateTime, true, true> unusualDmActivityUntil;
     Field<Core::Snowflake, true> userId; // supplemental
     Field<Presence, true> presence;
+
+    static constexpr int FlagQuarantinedName = 1 << 7;
 
     static Member fromJson(const QJsonObject &obj)
     {
@@ -336,6 +350,7 @@ struct Member : Core::JsonUtils::JsonObject
         get(obj, "flags", member.flags);
         get(obj, "pending", member.pending);
         get(obj, "communication_disabled_until", member.communicationDisabledUntil);
+        get(obj, "unusual_dm_activity_until", member.unusualDmActivityUntil);
         get(obj, "user_id", member.userId);
         get(obj, "presence", member.presence);
         return member;
@@ -355,6 +370,60 @@ struct MentionedUser : User
     }
 };
 
+struct RoleColors : Core::JsonUtils::JsonObject
+{
+    Field<int> primaryColor;
+    Field<int, false, true> secondaryColor;
+    Field<int, false, true> tertiaryColor;
+
+    static RoleColors fromJson(const QJsonObject &obj)
+    {
+        RoleColors colors;
+        get(obj, "primary_color", colors.primaryColor);
+        get(obj, "secondary_color", colors.secondaryColor);
+        get(obj, "tertiary_color", colors.tertiaryColor);
+        return colors;
+    }
+
+    Core::OrderedJson toJson() const
+    {
+        Core::OrderedJson obj;
+        insert(obj, "primary_color", primaryColor);
+        insert(obj, "secondary_color", secondaryColor);
+        insert(obj, "tertiary_color", tertiaryColor);
+        return obj;
+    }
+
+    static RoleColors solid(int color)
+    {
+        RoleColors colors;
+        colors.primaryColor = color;
+        colors.secondaryColor = nullptr;
+        colors.tertiaryColor = nullptr;
+        return colors;
+    }
+};
+
+struct RoleTags : Core::JsonUtils::JsonObject
+{
+    Field<Core::Snowflake, true> botId;
+    Field<Core::Snowflake, true> integrationId;
+    Field<Core::Snowflake, true> subscriptionListingId;
+    bool premiumSubscriber = false;
+    bool guildConnections = false;
+
+    static RoleTags fromJson(const QJsonObject &obj)
+    {
+        RoleTags tags;
+        get(obj, "bot_id", tags.botId);
+        get(obj, "integration_id", tags.integrationId);
+        get(obj, "subscription_listing_id", tags.subscriptionListingId);
+        tags.premiumSubscriber = obj.contains("premium_subscriber");
+        tags.guildConnections = obj.contains("guild_connections");
+        return tags;
+    }
+};
+
 struct Role : Core::JsonUtils::JsonObject
 {
     Field<Core::Snowflake> id;
@@ -362,11 +431,15 @@ struct Role : Core::JsonUtils::JsonObject
     Field<Permissions> permissions;
     Field<int> position;
     Field<int, true> color;
+    Field<RoleColors, true, true> colors;
     Field<bool, true> hoist;
     Field<QString, true, true> icon;
     Field<QString, true, true> unicodeEmoji;
     Field<bool, true> managed;
     Field<bool, true> mentionable;
+    Field<int, true> flags;
+    Field<RoleTags, true> tags;
+    QString tagsJson;
 
     static Role fromJson(const QJsonObject &obj)
     {
@@ -379,13 +452,20 @@ struct Role : Core::JsonUtils::JsonObject
         }
         get(obj, "position", role.position);
         get(obj, "color", role.color);
+        get(obj, "colors", role.colors);
         get(obj, "hoist", role.hoist);
         get(obj, "icon", role.icon);
         get(obj, "unicode_emoji", role.unicodeEmoji);
         get(obj, "managed", role.managed);
         get(obj, "mentionable", role.mentionable);
+        get(obj, "flags", role.flags);
+        get(obj, "tags", role.tags);
+        if (obj.contains("tags"))
+            role.tagsJson = QString::fromUtf8(QJsonDocument(obj.value("tags").toObject()).toJson(QJsonDocument::Compact));
         return role;
     }
+
+    [[nodiscard]] bool isManaged() const { return managed.valueOr(false); }
 
     bool hasColor() const
     {
@@ -580,6 +660,7 @@ struct Emoji : Core::JsonUtils::JsonObject
     Field<QList<Core::Snowflake>, true> roles;
     Field<bool, true> managed;
     Field<bool, true> available;
+    Field<User, true> user;
 
     static Emoji fromJson(const QJsonObject &obj)
     {
@@ -590,6 +671,7 @@ struct Emoji : Core::JsonUtils::JsonObject
         get(obj, "roles", emoji.roles);
         get(obj, "managed", emoji.managed);
         get(obj, "available", emoji.available);
+        get(obj, "user", emoji.user);
         return emoji;
     }
 
@@ -605,6 +687,36 @@ struct Emoji : Core::JsonUtils::JsonObject
     }
 };
 
+struct GuildPremiumFeatures : Core::JsonUtils::JsonObject
+{
+    Field<int, true> additionalEmojiSlots;
+    Field<int, true> additionalStickerSlots;
+
+    static GuildPremiumFeatures fromJson(const QJsonObject &obj)
+    {
+        GuildPremiumFeatures features;
+        get(obj, "additional_emoji_slots", features.additionalEmojiSlots);
+        get(obj, "additional_sticker_slots", features.additionalStickerSlots);
+        return features;
+    }
+};
+
+struct GuildIncidentsData : Core::JsonUtils::JsonObject
+{
+    Field<QDateTime, true, true> invitesDisabledUntil;
+    Field<QDateTime, true, true> dmsDisabledUntil;
+    Field<int, true, true> lockdownDurationHours;
+
+    static GuildIncidentsData fromJson(const QJsonObject &obj)
+    {
+        GuildIncidentsData data;
+        get(obj, "invites_disabled_until", data.invitesDisabledUntil);
+        get(obj, "dms_disabled_until", data.dmsDisabledUntil);
+        get(obj, "lockdown_duration_hours", data.lockdownDurationHours);
+        return data;
+    }
+};
+
 struct Guild : Core::JsonUtils::JsonObject
 {
     Field<Core::Snowflake> id;
@@ -613,9 +725,23 @@ struct Guild : Core::JsonUtils::JsonObject
     Field<Core::Snowflake> ownerId;
     Field<QList<Role>, true> roles;
     Field<PremiumTier, true> premiumTier;
+    Field<int, true> premiumSubscriptionCount;
     Field<Core::Snowflake, false, true> rulesChannelId;
     Field<MessageNotificationLevel, true> defaultMessageNotifications;
     Field<QList<QString>, true> features;
+    Field<QString, true, true> description;
+    Field<QString, true, true> banner;
+    Field<QString, true, true> splash;
+    Field<Core::Snowflake, true, true> afkChannelId;
+    Field<int, true> afkTimeout;
+    Field<Core::Snowflake, true, true> systemChannelId;
+    Field<SystemChannelFlags, true> systemChannelFlags;
+    Field<VerificationLevel, true> verificationLevel;
+    Field<ExplicitContentFilter, true> explicitContentFilter;
+    Field<MfaLevel, true> mfaLevel;
+    Field<bool, true> premiumProgressBarEnabled;
+    Field<GuildPremiumFeatures, true, true> premiumFeatures;
+    Field<GuildIncidentsData, true, true> incidentsData;
 
     static Guild fromJson(const QJsonObject &obj)
     {
@@ -626,15 +752,134 @@ struct Guild : Core::JsonUtils::JsonObject
         get(obj, "owner_id", guild.ownerId);
         get(obj, "roles", guild.roles);
         get(obj, "premium_tier", guild.premiumTier);
+        get(obj, "premium_subscription_count", guild.premiumSubscriptionCount);
         get(obj, "rules_channel_id", guild.rulesChannelId);
         get(obj, "default_message_notifications", guild.defaultMessageNotifications);
         get(obj, "features", guild.features);
+        get(obj, "description", guild.description);
+        get(obj, "banner", guild.banner);
+        get(obj, "splash", guild.splash);
+        get(obj, "afk_channel_id", guild.afkChannelId);
+        get(obj, "afk_timeout", guild.afkTimeout);
+        get(obj, "system_channel_id", guild.systemChannelId);
+        get(obj, "system_channel_flags", guild.systemChannelFlags);
+        get(obj, "verification_level", guild.verificationLevel);
+        get(obj, "explicit_content_filter", guild.explicitContentFilter);
+        get(obj, "mfa_level", guild.mfaLevel);
+        get(obj, "premium_progress_bar_enabled", guild.premiumProgressBarEnabled);
+        get(obj, "premium_features", guild.premiumFeatures);
+        get(obj, "incidents_data", guild.incidentsData);
         return guild;
     }
 
     [[nodiscard]] bool hasFeature(const QString &feature) const
     {
         return features.hasValue() && features->contains(feature);
+    }
+
+    [[nodiscard]] bool invitesPaused() const
+    {
+        if (hasFeature(QStringLiteral("INVITES_DISABLED")))
+            return true;
+        return incidentsData.hasValue() &&
+               incidentsData->invitesDisabledUntil.hasValue() &&
+               incidentsData->invitesDisabledUntil.get() > QDateTime::currentDateTimeUtc();
+    }
+};
+
+struct Sticker : Core::JsonUtils::JsonObject
+{
+    Field<Core::Snowflake> id;
+    Field<QString> name;
+    Field<QString, true, true> description;
+    Field<QString, true> tags;
+    Field<StickerFormatType> formatType;
+    Field<bool, true> available;
+    Field<Core::Snowflake, true> guildId;
+    Field<User, true> user;
+
+    static Sticker fromJson(const QJsonObject &obj)
+    {
+        Sticker sticker;
+        get(obj, "id", sticker.id);
+        get(obj, "name", sticker.name);
+        get(obj, "description", sticker.description);
+        get(obj, "tags", sticker.tags);
+        get(obj, "format_type", sticker.formatType);
+        get(obj, "available", sticker.available);
+        get(obj, "guild_id", sticker.guildId);
+        get(obj, "user", sticker.user);
+        return sticker;
+    }
+};
+
+struct Ban : Core::JsonUtils::JsonObject
+{
+    Field<User> user;
+    Field<QString, false, true> reason;
+
+    static Ban fromJson(const QJsonObject &obj)
+    {
+        Ban ban;
+        get(obj, "user", ban.user);
+        get(obj, "reason", ban.reason);
+        return ban;
+    }
+};
+
+struct Invite : Core::JsonUtils::JsonObject
+{
+    Field<QString> code;
+    Field<Core::Snowflake, true> guildId;
+    Field<Core::Snowflake, true> channelId;
+    Field<Channel, true, true> channel;
+    Field<User, true> inviter;
+    Field<int, true> uses;
+    Field<int, true> maxUses;
+    Field<int, true> maxAge;
+    Field<bool, true> temporary;
+    Field<QDateTime, true> createdAt;
+    Field<QDateTime, true, true> expiresAt;
+
+    static Invite fromJson(const QJsonObject &obj)
+    {
+        Invite invite;
+        get(obj, "code", invite.code);
+        get(obj, "guild_id", invite.guildId);
+        get(obj, "channel_id", invite.channelId);
+        get(obj, "channel", invite.channel);
+        get(obj, "inviter", invite.inviter);
+        get(obj, "uses", invite.uses);
+        get(obj, "max_uses", invite.maxUses);
+        get(obj, "max_age", invite.maxAge);
+        get(obj, "temporary", invite.temporary);
+        get(obj, "created_at", invite.createdAt);
+        get(obj, "expires_at", invite.expiresAt);
+        return invite;
+    }
+
+    [[nodiscard]] Core::Snowflake resolvedChannelId() const
+    {
+        if (channelId.hasValue())
+            return channelId.get();
+        if (channel.hasValue())
+            return channel->id.get();
+        return {};
+    }
+
+    [[nodiscard]] QDateTime expiryTime() const
+    {
+        if (expiresAt.hasValue() && expiresAt->isValid())
+            return expiresAt.get();
+        if (maxAge.valueOr(0) > 0 && createdAt.hasValue())
+            return createdAt->addSecs(maxAge.get());
+        return {};
+    }
+
+    [[nodiscard]] bool hasExpired(const QDateTime &now) const
+    {
+        const QDateTime expiry = expiryTime();
+        return expiry.isValid() && expiry <= now;
     }
 };
 
@@ -698,6 +943,8 @@ struct GatewayGuild : Core::JsonUtils::JsonObject
         get(obj, "presences", guild.presences);
         get(obj, "joined_at", guild.joinedAt);
         get(obj, "unavailable", guild.unavailable);
+        if (obj.contains("premium_subscription_count"))
+            get(obj, "premium_subscription_count", guild.properties->premiumSubscriptionCount);
         return guild;
     }
 
@@ -1425,6 +1672,106 @@ struct UserProfile : Core::JsonUtils::JsonObject
         get(obj, "badges", p.badges);
         get(obj, "legacy_username", p.legacyUsername);
         return p;
+    }
+};
+
+struct AuditLogChange
+{
+    QString key;
+    QJsonValue oldValue = QJsonValue(QJsonValue::Undefined);
+    QJsonValue newValue = QJsonValue(QJsonValue::Undefined);
+};
+
+struct AuditLogEntry : Core::JsonUtils::JsonObject
+{
+    Field<Core::Snowflake> id;
+    Field<AuditLogAction> actionType;
+    Field<Core::Snowflake, false, true> userId;
+    Field<Core::Snowflake, false, true> targetId;
+    Field<QString, true, true> reason;
+    QList<AuditLogChange> changes;
+    QJsonObject options;
+
+    static AuditLogEntry fromJson(const QJsonObject &obj)
+    {
+        AuditLogEntry entry;
+        get(obj, "id", entry.id);
+        get(obj, "action_type", entry.actionType);
+        get(obj, "user_id", entry.userId);
+        get(obj, "target_id", entry.targetId);
+        get(obj, "reason", entry.reason);
+        for (const QJsonValue &value : obj.value("changes").toArray()) {
+            const QJsonObject change = value.toObject();
+            entry.changes.append({ change.value("key").toString(), change.value("old_value"), change.value("new_value") });
+        }
+        entry.options = obj.value("options").toObject();
+        return entry;
+    }
+};
+
+struct AuditLog
+{
+    QList<AuditLogEntry> entries;
+    QList<User> users;
+    QJsonArray integrations;
+    QJsonArray webhooks;
+    QJsonArray guildScheduledEvents;
+    QJsonArray autoModerationRules;
+    QJsonArray threads;
+    QJsonArray applicationCommands;
+
+    static AuditLog fromJson(const QJsonObject &obj)
+    {
+        AuditLog log;
+        for (const QJsonValue &value : obj.value("audit_log_entries").toArray())
+            log.entries.append(AuditLogEntry::fromJson(value.toObject()));
+        for (const QJsonValue &value : obj.value("users").toArray())
+            log.users.append(User::fromJson(value.toObject()));
+        log.integrations = obj.value("integrations").toArray();
+        log.webhooks = obj.value("webhooks").toArray();
+        log.guildScheduledEvents = obj.value("guild_scheduled_events").toArray();
+        log.autoModerationRules = obj.value("auto_moderation_rules").toArray();
+        log.threads = obj.value("threads").toArray();
+        log.applicationCommands = obj.value("application_commands").toArray();
+        return log;
+    }
+};
+
+enum class JoinSourceType {
+    UNSPECIFIED = 0,
+    BOT = 1,
+    INTEGRATION = 2,
+    DISCOVERY = 3,
+    HUB = 4,
+    INVITE = 5,
+    VANITY_URL = 6,
+    MANUAL_MEMBER_VERIFICATION = 7,
+    LINKED_CHANNEL = 8,
+};
+
+struct MemberSearchResult : Core::JsonUtils::JsonObject
+{
+    Field<Member> member;
+    Field<QString, true, true> sourceInviteCode;
+    Field<JoinSourceType, true, true> joinSourceType;
+    Field<Core::Snowflake, true, true> inviterId;
+
+    static MemberSearchResult fromJson(const QJsonObject &obj)
+    {
+        MemberSearchResult result;
+        get(obj, "member", result.member);
+        get(obj, "source_invite_code", result.sourceInviteCode);
+        get(obj, "join_source_type", result.joinSourceType);
+        get(obj, "inviter_id", result.inviterId);
+        return result;
+    }
+
+    [[nodiscard]] JoinSourceType resolvedJoinSource() const
+    {
+        const JoinSourceType type = joinSourceType.valueOr(JoinSourceType::UNSPECIFIED);
+        if (type == JoinSourceType::UNSPECIFIED && sourceInviteCode.hasValue() && !sourceInviteCode->isEmpty())
+            return JoinSourceType::INVITE;
+        return type;
     }
 };
 

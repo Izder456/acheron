@@ -148,13 +148,20 @@ enum class GatewayEvent {
     THREAD_MEMBERS_UPDATE,
     FORUM_UNREADS,
     GUILD_CREATE,
+    GUILD_UPDATE,
     GUILD_DELETE,
     GUILD_MEMBERS_CHUNK,
+    GUILD_MEMBER_ADD,
     GUILD_MEMBER_UPDATE,
+    GUILD_MEMBER_REMOVE,
     GUILD_ROLE_CREATE,
     GUILD_ROLE_UPDATE,
     GUILD_ROLE_DELETE,
     GUILD_EMOJIS_UPDATE,
+    GUILD_STICKERS_UPDATE,
+    GUILD_BAN_ADD,
+    GUILD_BAN_REMOVE,
+    GUILD_PRUNE_UPDATE,
     MESSAGE_ACK,
     MESSAGE_REACTION_ADD,
     MESSAGE_REACTION_ADD_MANY,
@@ -206,13 +213,20 @@ inline GatewayEvent parseGatewayEvent(const QString &event)
         { "THREAD_MEMBERS_UPDATE", GatewayEvent::THREAD_MEMBERS_UPDATE },
         { "FORUM_UNREADS", GatewayEvent::FORUM_UNREADS },
         { "GUILD_CREATE", GatewayEvent::GUILD_CREATE },
+        { "GUILD_UPDATE", GatewayEvent::GUILD_UPDATE },
         { "GUILD_DELETE", GatewayEvent::GUILD_DELETE },
         { "GUILD_MEMBERS_CHUNK", GatewayEvent::GUILD_MEMBERS_CHUNK },
+        { "GUILD_MEMBER_ADD", GatewayEvent::GUILD_MEMBER_ADD },
         { "GUILD_MEMBER_UPDATE", GatewayEvent::GUILD_MEMBER_UPDATE },
+        { "GUILD_MEMBER_REMOVE", GatewayEvent::GUILD_MEMBER_REMOVE },
         { "GUILD_ROLE_CREATE", GatewayEvent::GUILD_ROLE_CREATE },
         { "GUILD_ROLE_UPDATE", GatewayEvent::GUILD_ROLE_UPDATE },
         { "GUILD_ROLE_DELETE", GatewayEvent::GUILD_ROLE_DELETE },
         { "GUILD_EMOJIS_UPDATE", GatewayEvent::GUILD_EMOJIS_UPDATE },
+        { "GUILD_STICKERS_UPDATE", GatewayEvent::GUILD_STICKERS_UPDATE },
+        { "GUILD_BAN_ADD", GatewayEvent::GUILD_BAN_ADD },
+        { "GUILD_BAN_REMOVE", GatewayEvent::GUILD_BAN_REMOVE },
+        { "GUILD_PRUNE_UPDATE", GatewayEvent::GUILD_PRUNE_UPDATE },
         { "MESSAGE_ACK", GatewayEvent::MESSAGE_ACK },
         { "MESSAGE_REACTION_ADD", GatewayEvent::MESSAGE_REACTION_ADD },
         { "MESSAGE_REACTION_ADD_MANY", GatewayEvent::MESSAGE_REACTION_ADD_MANY },
@@ -376,6 +390,118 @@ enum class MessageNotificationLevel {
     INHERIT = 3,
 };
 
+enum class VerificationLevel {
+    NONE = 0,
+    LOW = 1,
+    MEDIUM = 2,
+    HIGH = 3,
+    VERY_HIGH = 4,
+};
+
+enum class ExplicitContentFilter {
+    DISABLED = 0,
+    MEMBERS_WITHOUT_ROLES = 1,
+    ALL_MEMBERS = 2,
+};
+
+enum class MfaLevel {
+    NONE = 0,
+    ELEVATED = 1,
+};
+
+enum class AuditLogAction {
+    GUILD_UPDATE = 1,
+    CHANNEL_CREATE = 10,
+    CHANNEL_UPDATE = 11,
+    CHANNEL_DELETE = 12,
+    CHANNEL_OVERWRITE_CREATE = 13,
+    CHANNEL_OVERWRITE_UPDATE = 14,
+    CHANNEL_OVERWRITE_DELETE = 15,
+    MEMBER_KICK = 20,
+    MEMBER_PRUNE = 21,
+    MEMBER_BAN_ADD = 22,
+    MEMBER_BAN_REMOVE = 23,
+    MEMBER_UPDATE = 24,
+    MEMBER_ROLE_UPDATE = 25,
+    MEMBER_MOVE = 26,
+    MEMBER_DISCONNECT = 27,
+    BOT_ADD = 28,
+    ROLE_CREATE = 30,
+    ROLE_UPDATE = 31,
+    ROLE_DELETE = 32,
+    INVITE_CREATE = 40,
+    INVITE_UPDATE = 41,
+    INVITE_DELETE = 42,
+    WEBHOOK_CREATE = 50,
+    WEBHOOK_UPDATE = 51,
+    WEBHOOK_DELETE = 52,
+    EMOJI_CREATE = 60,
+    EMOJI_UPDATE = 61,
+    EMOJI_DELETE = 62,
+    MESSAGE_DELETE = 72,
+    MESSAGE_BULK_DELETE = 73,
+    MESSAGE_PIN = 74,
+    MESSAGE_UNPIN = 75,
+    INTEGRATION_CREATE = 80,
+    INTEGRATION_UPDATE = 81,
+    INTEGRATION_DELETE = 82,
+    STAGE_INSTANCE_CREATE = 83,
+    STAGE_INSTANCE_UPDATE = 84,
+    STAGE_INSTANCE_DELETE = 85,
+    STICKER_CREATE = 90,
+    STICKER_UPDATE = 91,
+    STICKER_DELETE = 92,
+    GUILD_SCHEDULED_EVENT_CREATE = 100,
+    GUILD_SCHEDULED_EVENT_UPDATE = 101,
+    GUILD_SCHEDULED_EVENT_DELETE = 102,
+    THREAD_CREATE = 110,
+    THREAD_UPDATE = 111,
+    THREAD_DELETE = 112,
+    APPLICATION_COMMAND_PERMISSION_UPDATE = 121,
+    SOUNDBOARD_SOUND_CREATE = 130,
+    SOUNDBOARD_SOUND_UPDATE = 131,
+    SOUNDBOARD_SOUND_DELETE = 132,
+    AUTO_MODERATION_RULE_CREATE = 140,
+    AUTO_MODERATION_RULE_UPDATE = 141,
+    AUTO_MODERATION_RULE_DELETE = 142,
+    AUTO_MODERATION_BLOCK_MESSAGE = 143,
+    AUTO_MODERATION_FLAG_TO_CHANNEL = 144,
+    AUTO_MODERATION_USER_COMMUNICATION_DISABLED = 145,
+    AUTO_MODERATION_QUARANTINE_USER = 146,
+    CREATOR_MONETIZATION_REQUEST_CREATED = 150,
+    CREATOR_MONETIZATION_TERMS_ACCEPTED = 151,
+    ONBOARDING_PROMPT_CREATE = 163,
+    ONBOARDING_PROMPT_UPDATE = 164,
+    ONBOARDING_PROMPT_DELETE = 165,
+    ONBOARDING_CREATE = 166,
+    ONBOARDING_UPDATE = 167,
+    GUILD_HOME_FEATURE_ITEM = 171,
+    GUILD_HOME_REMOVE_ITEM = 172,
+    HARMFUL_LINKS_BLOCKED_MESSAGE = 180,
+    HOME_SETTINGS_CREATE = 190,
+    HOME_SETTINGS_UPDATE = 191,
+    VOICE_CHANNEL_STATUS_CREATE = 192,
+    VOICE_CHANNEL_STATUS_DELETE = 193,
+    GUILD_SCHEDULED_EVENT_EXCEPTION_CREATE = 200,
+    GUILD_SCHEDULED_EVENT_EXCEPTION_UPDATE = 201,
+    GUILD_SCHEDULED_EVENT_EXCEPTION_DELETE = 202,
+    GUILD_MEMBER_VERIFICATION_UPDATE = 210,
+    GUILD_PROFILE_UPDATE = 211,
+    GUILD_MIGRATE_PIN_PERMISSION = 212,
+    GUILD_MIGRATE_BYPASS_SLOWMODE_PERMISSION = 213,
+};
+
+enum class SystemChannelFlag {
+    SUPPRESS_JOIN_NOTIFICATIONS = 1 << 0,
+    SUPPRESS_PREMIUM_SUBSCRIPTIONS = 1 << 1,
+    SUPPRESS_GUILD_REMINDER_NOTIFICATIONS = 1 << 2,
+    SUPPRESS_JOIN_NOTIFICATION_REPLIES = 1 << 3,
+    SUPPRESS_ROLE_SUBSCRIPTION_PURCHASE_NOTIFICATIONS = 1 << 4,
+    SUPPRESS_ROLE_SUBSCRIPTION_PURCHASE_NOTIFICATION_REPLIES = 1 << 5,
+    SUPPRESS_CHANNEL_PROMPT_DEADCHAT = 1 << 7,
+};
+ACHERON_DECLARE_FLAGS(SystemChannelFlags, SystemChannelFlag)
+
 enum class MessageType {
     DEFAULT = 0,
     RECIPIENT_ADD = 1,
@@ -534,6 +660,16 @@ ACHERON_DECLARE_FLAGS(Permissions, Permission)
 
 constexpr Permissions ALL_PERMISSIONS = Permissions::fromInt(0xFFFFFFFFFFFFFFFFULL);
 constexpr Permissions NO_PERMISSIONS = Permissions::fromInt(0ULL);
+
+constexpr Permissions MFA_ELEVATED_PERMISSIONS = Permissions::fromInt(quint64(Permission::KICK_MEMBERS) |
+                                                                      quint64(Permission::BAN_MEMBERS) |
+                                                                      quint64(Permission::ADMINISTRATOR) |
+                                                                      quint64(Permission::MANAGE_CHANNELS) |
+                                                                      quint64(Permission::MANAGE_GUILD) |
+                                                                      quint64(Permission::MANAGE_ROLES) |
+                                                                      quint64(Permission::MANAGE_MESSAGES) |
+                                                                      quint64(Permission::MANAGE_THREADS) |
+                                                                      quint64(Permission::MODERATE_MEMBERS));
 
 enum class ReadStateFlag {
     IS_GUILD_CHANNEL = 1 << 0,

@@ -21,6 +21,7 @@
 #include "Proto/UserSettings.hpp"
 
 #include "Gateway.hpp"
+#include "GuildRequests.hpp"
 #include "HttpClient.hpp"
 #include "ClientIdentity.hpp"
 
@@ -151,7 +152,8 @@ public:
                                  const QList<QPair<int, int>> &ranges);
     void ensureSubscriptionByChannel(Snowflake channelId);
     void requestForumUnreads(Snowflake forumId, const QList<QPair<Snowflake, Snowflake>> &threads);
-    void requestGuildMembers(Snowflake guildId, const QList<Snowflake> &userIds);
+    void requestGuildMembers(Snowflake guildId, const QList<Snowflake> &userIds, bool presences = true);
+    void queryGuildMembers(Snowflake guildId, const QString &query, int limit);
 
     [[nodiscard]] Snowflake getGuildIdForChannel(Snowflake channelId) const;
     void registerChannelGuild(Snowflake channelId, Snowflake guildId);
@@ -179,6 +181,71 @@ public:
     [[nodiscard]] const User &getMe() const;
     [[nodiscard]] bool isPremium() const;
 
+    template <typename T>
+    using ResultCallback = std::function<void(const Core::Result<T> &)>;
+    using ActionCallback = ResultCallback<void>;
+
+    void fetchGuildProfile(Snowflake guildId, ResultCallback<GuildProfileEdit> callback);
+    void modifyGuildProfile(Snowflake guildId, const GuildProfileEdit &edit, ResultCallback<GuildProfileEdit> callback);
+    void modifyGuild(Snowflake guildId, const GuildEdit &edit, const QMap<QString, QByteArray> &originalMd5s, ActionCallback callback);
+    void deleteGuild(Snowflake guildId, ActionCallback callback);
+
+    void createRole(Snowflake guildId, ResultCallback<Role> callback);
+    void modifyRole(Snowflake guildId, Snowflake roleId, const RoleEdit &edit, ActionCallback callback);
+    void modifyRolePositions(Snowflake guildId, const QList<QPair<Snowflake, int>> &positions, ActionCallback callback);
+    void deleteRole(Snowflake guildId, Snowflake roleId, ActionCallback callback);
+    void fetchRoleMemberCounts(Snowflake guildId, ResultCallback<QHash<Snowflake, int>> callback);
+    void fetchRoleMemberIds(Snowflake guildId, Snowflake roleId, ResultCallback<QList<Snowflake>> callback);
+    void addRoleMembers(Snowflake guildId, Snowflake roleId, const QList<Snowflake> &userIds, ResultCallback<QList<Snowflake>> callback);
+
+    struct MemberSearchPage
+    {
+        QList<MemberSearchResult> members;
+        int totalResultCount = 0;
+        std::optional<int> indexingRetryAfterSeconds;
+    };
+    void searchGuildMembers(Snowflake guildId, const MemberSearchQuery &query, ResultCallback<MemberSearchPage> callback);
+    void setMemberRoles(Snowflake guildId, Snowflake userId, const QList<Snowflake> &roleIds,
+                        const QList<Snowflake> &added, const QList<Snowflake> &removed, ActionCallback callback);
+    void setMemberNickname(Snowflake guildId, Snowflake userId, const QString &nick, ActionCallback callback);
+    void setMemberTimeout(Snowflake guildId, Snowflake userId, const QDateTime &until, const std::optional<QString> &reason, ActionCallback callback);
+    void kickMember(Snowflake guildId, Snowflake userId, const QString &reason, ActionCallback callback);
+    void banMember(Snowflake guildId, Snowflake userId, int deleteMessageSeconds, const QString &reason, ActionCallback callback);
+    void unbanMember(Snowflake guildId, Snowflake userId, ActionCallback callback);
+    void requestPruneCount(Snowflake guildId, int days, const QList<Snowflake> &includeRoles, ActionCallback callback);
+    void pruneMembers(Snowflake guildId, int days, const QList<Snowflake> &includeRoles, ActionCallback callback);
+    void setMemberUpdatesSubscription(Snowflake guildId, bool subscribed);
+
+    void fetchBans(Snowflake guildId, Snowflake after, ResultCallback<QList<Ban>> callback);
+    void searchBans(Snowflake guildId, const QString &query, const QList<Snowflake> &userIds, ResultCallback<QList<Ban>> callback);
+
+    void fetchGuildInvites(Snowflake guildId, ResultCallback<QList<Invite>> callback);
+    void createInvite(Snowflake channelId, int maxAgeSeconds, int maxUses, bool temporary, ResultCallback<Invite> callback);
+    void revokeInvite(const QString &code, ActionCallback callback);
+    void setIncidentActions(Snowflake guildId, const QDateTime &invitesDisabledUntil, const QDateTime &dmsDisabledUntil,
+                            std::optional<int> lockdownHours, ActionCallback callback);
+
+    void fetchGuildEmojis(Snowflake guildId, ResultCallback<QList<Emoji>> callback);
+    void createGuildEmoji(Snowflake guildId, const QString &name, const QString &imageDataUri, const QByteArray &originalMd5, ResultCallback<Emoji> callback);
+    void renameGuildEmoji(Snowflake guildId, Snowflake emojiId, const QString &name, ActionCallback callback);
+    void deleteGuildEmoji(Snowflake guildId, Snowflake emojiId, ActionCallback callback);
+
+    void fetchGuildStickers(Snowflake guildId, ResultCallback<QList<Sticker>> callback);
+    void createGuildSticker(Snowflake guildId, const QString &name, const QString &tags, const QString &description,
+                            const FileUpload &file, const QByteArray &originalMd5, ResultCallback<Sticker> callback);
+    void modifyGuildSticker(Snowflake guildId, Snowflake stickerId, const QString &name, const QString &tags,
+                            const QString &description, ActionCallback callback);
+    void deleteGuildSticker(Snowflake guildId, Snowflake stickerId, ActionCallback callback);
+
+    struct AuditLogQuery
+    {
+        static constexpr int PageSize = 50;
+        Snowflake before;
+        Snowflake userId;
+        std::optional<AuditLogAction> actionType;
+    };
+    void fetchAuditLog(Snowflake guildId, const AuditLogQuery &query, ResultCallback<AuditLog> callback);
+
 signals:
     void stateChanged(Core::ConnectionState state);
     void ready(const Ready &data);
@@ -198,13 +265,23 @@ signals:
     void threadMembersUpdated(const ThreadMembersUpdate &event);
     void forumUnreads(const ForumUnreads &event);
     void guildCreated(const GatewayGuild &guild);
+    void guildUpdated(const Guild &guild);
     void guildDeleted(const GuildDelete &event);
     void guildMembersChunk(const GuildMembersChunk &chunk);
+    void guildMemberAdded(const GuildMemberAdd &event);
     void guildMemberUpdated(const GuildMemberUpdate &event);
+    void guildMemberRemoved(const GuildMemberRemove &event);
     void guildRoleCreated(const GuildRoleCreate &event);
     void guildRoleUpdated(const GuildRoleUpdate &event);
     void guildRoleDeleted(const GuildRoleDelete &event);
+    void roleMemberCountChanged(Snowflake guildId, Snowflake roleId, int delta);
     void guildEmojisUpdated(const GuildEmojisUpdate &event);
+    void guildStickersUpdated(const GuildStickersUpdate &event);
+    void guildBanAdded(const GuildBanEvent &event);
+    void guildBanRemoved(const GuildBanEvent &event);
+    void inviteCreated(const Invite &invite);
+    void inviteRevoked(const QString &code);
+    void guildPruneUpdated(const GuildPruneUpdate &event);
     void messageAcked(const MessageAck &event);
     void messageReactionAdd(const MessageReactionAdd &event);
     void messageReactionAddMany(const MessageReactionAddMany &event);
@@ -253,6 +330,7 @@ private slots:
     void onGatewayThreadDelete(const ThreadDelete &event);
     void onGatewayThreadListSync(const ThreadListSync &event);
     void onGatewayGuildCreate(const GatewayGuild &guild);
+    void onGatewayGuildUpdate(const Guild &guild);
     void onGatewayGuildDelete(const GuildDelete &event);
     void onGatewayGuildRoleCreate(const GuildRoleCreate &event);
     void onGatewayGuildRoleUpdate(const GuildRoleUpdate &event);
@@ -292,6 +370,10 @@ private:
                          ForumThreadCallback callback);
     void cleanupUploadedSlots(const std::shared_ptr<UploadState> &state);
     void settleUpload(const std::shared_ptr<UploadState> &state);
+
+    HttpCallback applyThen(std::function<void(const QJsonDocument &)> apply, HttpCallback finish);
+    HttpCallback memberUpdateHandler(Snowflake guildId, const char *what, ActionCallback callback);
+    HttpCallback memberRemovalHandler(Snowflake guildId, Snowflake userId, const char *what, ActionCallback callback);
 
 private:
     Core::ConnectionState state = Core::ConnectionState::Disconnected;

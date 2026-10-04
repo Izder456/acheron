@@ -21,6 +21,21 @@
 
 namespace Acheron {
 namespace Core {
+
+namespace {
+
+void removeBanOf(QList<Discord::Ban> &bans, Snowflake userId)
+{
+    bans.erase(std::remove_if(bans.begin(), bans.end(), [userId](const Discord::Ban &ban) { return ban.user->id.get() == userId; }), bans.end());
+}
+
+void removeInvite(QList<Discord::Invite> &invites, const QString &code)
+{
+    invites.erase(std::remove_if(invites.begin(), invites.end(), [&code](const Discord::Invite &invite) { return invite.code.get() == code; }), invites.end());
+}
+
+} // namespace
+
 ClientInstance::ClientInstance(const AccountInfo &info,
                                Discord::CaptchaResolver *captchaResolver,
                                QObject *parent)
@@ -79,6 +94,8 @@ ClientInstance::ClientInstance(const AccountInfo &info,
 
         QList<Snowflake> guildIds;
         guildIds.reserve(ready.guilds->size());
+
+        permissionManager->setSelfMfaEnabled(ready.user->mfaEnabled.valueOr(true));
 
         Storage::Transaction txn(db);
         for (size_t i = 0; i < ready.guilds->size(); i++) {
@@ -217,6 +234,7 @@ ClientInstance::ClientInstance(const AccountInfo &info,
     connect(client, &Discord::Client::guildMembersChunk, presenceManager, &PresenceManager::onGuildMembersChunk);
 
     connect(client, &Discord::Client::guildCreated, this, &ClientInstance::onGuildCreated);
+    connect(client, &Discord::Client::guildUpdated, this, &ClientInstance::onGuildUpdated);
     connect(client, &Discord::Client::guildDeleted, this, &ClientInstance::onGuildDeleted);
     connect(client, &Discord::Client::channelCreated, this, &ClientInstance::onChannelCreated);
     connect(client, &Discord::Client::channelUpdated, this, &ClientInstance::onChannelUpdated);
@@ -225,7 +243,13 @@ ClientInstance::ClientInstance(const AccountInfo &info,
     connect(client, &Discord::Client::guildRoleUpdated, this, &ClientInstance::onGuildRoleUpdated);
     connect(client, &Discord::Client::guildRoleDeleted, this, &ClientInstance::onGuildRoleDeleted);
     connect(client, &Discord::Client::guildMembersChunk, this, &ClientInstance::onGuildMembersChunk);
+    connect(client, &Discord::Client::guildMemberAdded, this, &ClientInstance::onGuildMemberAdded);
     connect(client, &Discord::Client::guildMemberUpdated, this, &ClientInstance::onGuildMemberUpdate);
+    connect(client, &Discord::Client::guildMemberRemoved, this, &ClientInstance::onGuildMemberRemoved);
+    connect(client, &Discord::Client::guildBanAdded, this, &ClientInstance::onGuildBanAdded);
+    connect(client, &Discord::Client::guildBanRemoved, this, &ClientInstance::onGuildBanRemoved);
+    connect(client, &Discord::Client::inviteCreated, this, &ClientInstance::onInviteCreated);
+    connect(client, &Discord::Client::inviteRevoked, this, &ClientInstance::onInviteRevoked);
     connect(client, &Discord::Client::guildMemberListUpdate, presenceManager, &PresenceManager::onGuildMemberListUpdate);
     connect(client, &Discord::Client::guildMemberListUpdate, memberListManager, &MemberListManager::handleMemberListUpdate);
     connect(client, &Discord::Client::guildMemberListUpdate, this, &ClientInstance::onGuildMemberListUpdate);
@@ -412,6 +436,28 @@ void ClientInstance::onGuildCreated(const Discord::GatewayGuild &guild)
     emit guildCreated(guild);
 }
 
+void ClientInstance::onGuildUpdated(const Discord::Guild &guild)
+{
+    const Snowflake guildId = guild.id.get();
+    auto previous = guildRepo.getGuild(guildId);
+    if (!previous)
+        return;
+
+    if (!runInCacheTransaction("guild update", [&](QSqlDatabase &db) { guildRepo.saveGuild(guild, db); }))
+        return;
+
+    if (previous->ownerId.get() != guild.ownerId.get() ||
+        previous->mfaLevel.valueOr(Discord::MfaLevel::NONE) != guild.mfaLevel.valueOr(Discord::MfaLevel::NONE))
+        permissionManager->invalidateUserGuildCache(account.id, guildId);
+
+    readStateManager->updateGuildDefaults(
+            guildId,
+            guild.defaultMessageNotifications.valueOr(Discord::MessageNotificationLevel::ALL_MESSAGES),
+            guild.hasFeature(QStringLiteral("COMMUNITY")));
+
+    emit guildUpdated(guild);
+}
+
 void ClientInstance::onGuildDeleted(const Discord::GuildDelete &event)
 {
     if (!event.id.hasValue() || !event.userRemoved())
@@ -446,6 +492,8 @@ void ClientInstance::onGuildDeleted(const Discord::GuildDelete &event)
     memberListManager->clearGuild(guildId);
     permissionManager->invalidateUserGuildCache(account.id, guildId);
     rolesCacheByGuild.remove(guildId);
+    observedBansByGuild.remove(guildId);
+    createdInvitesByGuild.remove(guildId);
 
     emit guildRemoved(guildId);
 }
@@ -900,6 +948,92 @@ void ClientInstance::onGuildMembersChunk(const Discord::GuildMembersChunk &chunk
         emit membersUpdated(guildId, updatedUserIds);
 }
 
+void ClientInstance::onGuildMemberAdded(const Discord::GuildMemberAdd &event)
+{
+    const auto &member = event.member.get();
+    if (!member.user.hasValue() || !member.user->id.get().isValid())
+        return;
+
+    Snowflake guildId = event.guildId.get();
+    userManager->saveMemberWithUser(guildId, member);
+    emit membersUpdated(guildId, { member.user->id.get() });
+}
+
+void ClientInstance::onGuildMemberRemoved(const Discord::GuildMemberRemove &event)
+{
+    Snowflake guildId = event.guildId.get();
+    Snowflake userId = event.user->id.get();
+    if (!userId.isValid())
+        return;
+
+    userManager->removeMember(guildId, userId);
+    emit memberRemoved(guildId, userId);
+}
+
+QList<Discord::Ban> ClientInstance::observedBans(Snowflake guildId) const
+{
+    return observedBansByGuild.value(guildId);
+}
+
+QList<Discord::Invite> ClientInstance::createdInvites(Snowflake guildId) const
+{
+    QList<Discord::Invite> unexpired;
+    const QDateTime now = QDateTime::currentDateTimeUtc();
+    for (const Discord::Invite &invite : createdInvitesByGuild.value(guildId))
+        if (!invite.hasExpired(now))
+            unexpired.append(invite);
+    return unexpired;
+}
+
+std::optional<RoleHierarchy> ClientInstance::selfRoleHierarchy(Snowflake guildId)
+{
+    const auto guild = getGuild(guildId);
+    if (!guild)
+        return std::nullopt;
+    const auto selfRoles = userManager->getMemberRoles(guildId, account.id);
+    return RoleHierarchy(guildId, guild->ownerId.get(), account.id, getRolesForGuild(guildId), selfRoles.value_or(QList<Snowflake>()));
+}
+
+void ClientInstance::onGuildBanAdded(const Discord::GuildBanEvent &event)
+{
+    const Snowflake userId = event.user->id.get();
+    if (!userId.isValid())
+        return;
+    QList<Discord::Ban> &bans = observedBansByGuild[event.guildId.get()];
+    removeBanOf(bans, userId);
+    Discord::Ban ban;
+    ban.user = event.user.get();
+    ban.reason = nullptr;
+    bans.append(ban);
+}
+
+void ClientInstance::onGuildBanRemoved(const Discord::GuildBanEvent &event)
+{
+    const auto bans = observedBansByGuild.find(event.guildId.get());
+    if (bans != observedBansByGuild.end())
+        removeBanOf(*bans, event.user->id.get());
+}
+
+void ClientInstance::onInviteCreated(const Discord::Invite &invite)
+{
+    Snowflake guildId = invite.guildId.hasValue() ? invite.guildId.get() : Snowflake();
+    if (!guildId.isValid())
+        if (const auto channel = getChannel(invite.resolvedChannelId()); channel && channel->guildId.hasValue())
+            guildId = channel->guildId.get();
+    if (!guildId.isValid())
+        return;
+
+    QList<Discord::Invite> &invites = createdInvitesByGuild[guildId];
+    removeInvite(invites, invite.code.get());
+    invites.append(invite);
+}
+
+void ClientInstance::onInviteRevoked(const QString &code)
+{
+    for (QList<Discord::Invite> &invites : createdInvitesByGuild)
+        removeInvite(invites, code);
+}
+
 void ClientInstance::onGuildMemberUpdate(const Discord::GuildMemberUpdate &event)
 {
     Snowflake guildId = event.guildId.get();
@@ -1339,6 +1473,11 @@ QList<Discord::Role> ClientInstance::getMemberRolesSorted(Snowflake guildId, Sno
 std::optional<Discord::Guild> ClientInstance::getGuild(Snowflake guildId)
 {
     return guildRepo.getGuild(guildId);
+}
+
+QList<Discord::Channel> ClientInstance::getGuildChannels(Snowflake guildId)
+{
+    return channelRepo.getChannelsForGuild(guildId);
 }
 
 std::optional<Snowflake> ClientInstance::findDmChannelWithUser(Snowflake userId)

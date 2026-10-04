@@ -42,7 +42,9 @@ void HttpClient::post(const QString &endpoint, const QJsonObject &body, const Co
 {
     QString url = baseUrl + endpoint;
     QByteArray data = QJsonDocument(body).toJson(QJsonDocument::Compact);
-    executeRequest(Method::POST, url, data, callback, context.toHeaderValue());
+    RequestOptions options;
+    options.context = context;
+    executeRequest(Method::POST, url, data, callback, options);
 }
 
 void HttpClient::patch(const QString &endpoint, const QJsonObject &body, HttpCallback callback)
@@ -72,12 +74,43 @@ void HttpClient::delete_(const QString &endpoint, const QJsonObject &body, HttpC
     executeRequest(Method::DELETE_, url, data, callback);
 }
 
+void HttpClient::post(const QString &endpoint, const Core::OrderedJson &body, HttpCallback callback)
+{
+    executeRequest(Method::POST, baseUrl + endpoint, body.toBytes(), callback);
+}
+
+void HttpClient::put(const QString &endpoint, const Core::OrderedJson &body, HttpCallback callback)
+{
+    executeRequest(Method::PUT, baseUrl + endpoint, body.toBytes(), callback);
+}
+
+void HttpClient::patch(const QString &endpoint, const Core::OrderedJson &body, HttpCallback callback)
+{
+    executeRequest(Method::PATCH, baseUrl + endpoint, body.toBytes(), callback);
+}
+
+void HttpClient::patch(const QString &endpoint, const Core::OrderedJson::Array &body, HttpCallback callback)
+{
+    executeRequest(Method::PATCH, baseUrl + endpoint, body.toBytes(), callback);
+}
+
+void HttpClient::send(Method method, const QString &endpoint, const QByteArray &jsonBody, const RequestOptions &options, HttpCallback callback)
+{
+    executeRequest(method, baseUrl + endpoint, jsonBody, callback, options);
+}
+
 void HttpClient::postMultipart(const QString &endpoint, const QJsonObject &jsonPayload,
                                const QList<FileUpload> &files, HttpCallback callback)
 {
     QString url = baseUrl + endpoint;
     QByteArray jsonData = QJsonDocument(jsonPayload).toJson(QJsonDocument::Compact);
     executeMultipartRequest(url, jsonData, files, callback);
+}
+
+void HttpClient::postForm(const QString &endpoint, const QList<QPair<QString, QString>> &fields,
+                          const QList<FileUpload> &files, const RequestOptions &options, HttpCallback callback)
+{
+    executeMultipartRequest(baseUrl + endpoint, {}, files, callback, fields, options);
 }
 
 void HttpClient::putExternalFile(const QString &absoluteUrl, const QString &filePath,
@@ -128,8 +161,7 @@ void HttpClient::submitExternalPut(RequestDescriptor &descriptor,
     worker->submit(std::move(descriptor));
 }
 
-void HttpClient::executeRequest(Method method, const QString &url, const QByteArray &data,
-                                HttpCallback callback, const QByteArray &contextProperties)
+void HttpClient::executeRequest(Method method, const QString &url, const QByteArray &data, HttpCallback callback, const RequestOptions &options)
 {
     RequestDescriptor descriptor;
     descriptor.method = method;
@@ -138,13 +170,18 @@ void HttpClient::executeRequest(Method method, const QString &url, const QByteAr
     descriptor.multipart = false;
     descriptor.referer = referer;
     descriptor.fingerprint = fingerprint;
-    descriptor.contextProperties = contextProperties;
+    if (options.context)
+        descriptor.contextProperties = options.context->toHeaderValue();
+    descriptor.auditLogReason = options.auditLogReason;
+    descriptor.originalMd5 = options.originalMd5;
     descriptor.callback = std::move(callback);
     worker->submit(std::move(descriptor));
 }
 
 void HttpClient::executeMultipartRequest(const QString &url, const QByteArray &jsonData,
-                                         const QList<FileUpload> &files, HttpCallback callback)
+                                         const QList<FileUpload> &files, HttpCallback callback,
+                                         const QList<QPair<QString, QString>> &formFields,
+                                         const RequestOptions &options)
 {
     RequestDescriptor descriptor;
     descriptor.method = Method::POST;
@@ -152,8 +189,13 @@ void HttpClient::executeMultipartRequest(const QString &url, const QByteArray &j
     descriptor.body = jsonData;
     descriptor.multipart = true;
     descriptor.files = files;
+    descriptor.formFields = formFields;
     descriptor.referer = referer;
     descriptor.fingerprint = fingerprint;
+    if (options.context)
+        descriptor.contextProperties = options.context->toHeaderValue();
+    descriptor.auditLogReason = options.auditLogReason;
+    descriptor.originalMd5 = options.originalMd5;
     descriptor.callback = std::move(callback);
     worker->submit(std::move(descriptor));
 }

@@ -4,6 +4,7 @@
 #include <QHash>
 
 #include "Core/Snowflake.hpp"
+#include "UI/GuildSettings/GuildSettingsSection.hpp"
 
 namespace Acheron {
 namespace UI {
@@ -19,6 +20,7 @@ public:
 
     void setAccountVoiceChannel(Core::Snowflake accountId, Core::Snowflake channelId);
     [[nodiscard]] bool isAccountInVoice(Core::Snowflake accountId) const;
+    void setGuildSettingsProvider(GuildSettingsAccess::SectionsProvider provider);
 
 signals:
     void markAsReadRequested(const QModelIndex &proxyIndex);
@@ -28,6 +30,7 @@ signals:
     void joinThreadRequested(const QModelIndex &proxyIndex);
     void leaveThreadRequested(const QModelIndex &proxyIndex);
     void leaveGuildRequested(Core::Snowflake accountId, Core::Snowflake guildId);
+    void guildSettingsRequested(Core::Snowflake accountId, Core::Snowflake guildId, GuildSettingsSection section);
     void voiceParticipantContextMenuRequested(const QModelIndex &proxyIndex, QPoint globalPos);
 
 protected:
@@ -44,6 +47,7 @@ private:
     Core::Snowflake findAccountIdForIndex(const QModelIndex &sourceIndex) const;
 
     QHash<Core::Snowflake, Core::Snowflake> accountVoiceChannels; // accountId -> channelId
+    GuildSettingsAccess::SectionsProvider guildSettingsProvider;
 };
 
 } // namespace UI

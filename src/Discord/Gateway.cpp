@@ -107,6 +107,16 @@ void Gateway::subscribeToGuild(Core::Snowflake guildId, Core::Snowflake channelI
     sendPayload(data.toJson());
 }
 
+void Gateway::setMemberUpdatesSubscription(Core::Snowflake guildId, bool subscribed)
+{
+    GuildSubscriptionsBulk data;
+    GuildSubscriptionsBulk::SubscriptionData guild;
+    guild.memberUpdates = subscribed;
+    data.subscriptions.get().insert(guildId, guild);
+
+    sendPayload(data.toJson());
+}
+
 void Gateway::sendPayload(const Core::OrderedJson &obj)
 {
     sendPayload(obj.toBytes());
@@ -214,14 +224,23 @@ void Gateway::handleDispatch(const Inbound &data)
     case GatewayEvent::GUILD_CREATE:
         handleGuildCreate(data);
         break;
+    case GatewayEvent::GUILD_UPDATE:
+        handleGuildUpdate(data);
+        break;
     case GatewayEvent::GUILD_DELETE:
         handleGuildDelete(data);
         break;
     case GatewayEvent::GUILD_MEMBERS_CHUNK:
         handleGuildMembersChunk(data);
         break;
+    case GatewayEvent::GUILD_MEMBER_ADD:
+        handleGuildMemberAdd(data);
+        break;
     case GatewayEvent::GUILD_MEMBER_UPDATE:
         handleGuildMemberUpdate(data);
+        break;
+    case GatewayEvent::GUILD_MEMBER_REMOVE:
+        handleGuildMemberRemove(data);
         break;
     case GatewayEvent::GUILD_ROLE_CREATE:
         handleGuildRoleCreate(data);
@@ -234,6 +253,18 @@ void Gateway::handleDispatch(const Inbound &data)
         break;
     case GatewayEvent::GUILD_EMOJIS_UPDATE:
         handleGuildEmojisUpdate(data);
+        break;
+    case GatewayEvent::GUILD_STICKERS_UPDATE:
+        handleGuildStickersUpdate(data);
+        break;
+    case GatewayEvent::GUILD_BAN_ADD:
+        handleGuildBanAdd(data);
+        break;
+    case GatewayEvent::GUILD_BAN_REMOVE:
+        handleGuildBanRemove(data);
+        break;
+    case GatewayEvent::GUILD_PRUNE_UPDATE:
+        handleGuildPruneUpdate(data);
         break;
     case GatewayEvent::MESSAGE_ACK:
         handleMessageAck(data);
@@ -447,6 +478,13 @@ void Gateway::handleGuildCreate(const Inbound &data)
     emit gatewayGuildCreate(guild);
 }
 
+void Gateway::handleGuildUpdate(const Inbound &data)
+{
+    Guild guild = data.getData<Guild>();
+
+    emit gatewayGuildUpdate(guild);
+}
+
 void Gateway::handleGuildMembersChunk(const Inbound &data)
 {
     GuildMembersChunk chunk = data.getData<GuildMembersChunk>();
@@ -454,11 +492,25 @@ void Gateway::handleGuildMembersChunk(const Inbound &data)
     emit gatewayGuildMembersChunk(chunk);
 }
 
+void Gateway::handleGuildMemberAdd(const Inbound &data)
+{
+    GuildMemberAdd event = data.getData<GuildMemberAdd>();
+
+    emit gatewayGuildMemberAdd(event);
+}
+
 void Gateway::handleGuildMemberUpdate(const Inbound &data)
 {
     GuildMemberUpdate event = data.getData<GuildMemberUpdate>();
 
     emit gatewayGuildMemberUpdate(event);
+}
+
+void Gateway::handleGuildMemberRemove(const Inbound &data)
+{
+    GuildMemberRemove event = data.getData<GuildMemberRemove>();
+
+    emit gatewayGuildMemberRemove(event);
 }
 
 void Gateway::handleGuildRoleCreate(const Inbound &data)
@@ -487,6 +539,34 @@ void Gateway::handleGuildEmojisUpdate(const Inbound &data)
     GuildEmojisUpdate event = data.getData<GuildEmojisUpdate>();
 
     emit gatewayGuildEmojisUpdate(event);
+}
+
+void Gateway::handleGuildStickersUpdate(const Inbound &data)
+{
+    GuildStickersUpdate event = data.getData<GuildStickersUpdate>();
+
+    emit gatewayGuildStickersUpdate(event);
+}
+
+void Gateway::handleGuildBanAdd(const Inbound &data)
+{
+    GuildBanEvent event = data.getData<GuildBanEvent>();
+
+    emit gatewayGuildBanAdd(event);
+}
+
+void Gateway::handleGuildBanRemove(const Inbound &data)
+{
+    GuildBanEvent event = data.getData<GuildBanEvent>();
+
+    emit gatewayGuildBanRemove(event);
+}
+
+void Gateway::handleGuildPruneUpdate(const Inbound &data)
+{
+    GuildPruneUpdate event = data.getData<GuildPruneUpdate>();
+
+    emit gatewayGuildPruneUpdate(event);
 }
 
 void Gateway::handleGuildDelete(const Inbound &data)
@@ -646,12 +726,24 @@ void Gateway::handleSessionsReplace(const Inbound &data)
     emit gatewaySessionsReplace(sessions);
 }
 
-void Gateway::requestGuildMembers(Core::Snowflake guildId, const QList<Core::Snowflake> &userIds)
+void Gateway::requestGuildMembers(Core::Snowflake guildId, const QList<Core::Snowflake> &userIds, bool presences)
+{
+    for (qsizetype start = 0; start < userIds.size(); start += 100) {
+        RequestGuildMembers request;
+        request.guildId = guildId;
+        request.userIds = userIds.mid(start, 100);
+        request.presences = presences;
+        sendPayload(request.toJson());
+    }
+}
+
+void Gateway::queryGuildMembers(Core::Snowflake guildId, const QString &query, int limit, bool presences)
 {
     RequestGuildMembers request;
     request.guildId = guildId;
-    request.userIds = userIds;
-    request.presences = true;
+    request.query = query;
+    request.limit = limit;
+    request.presences = presences;
 
     sendPayload(request.toJson());
 }

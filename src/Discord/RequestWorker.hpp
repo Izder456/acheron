@@ -38,9 +38,12 @@ struct RequestDescriptor
     QString contentType; // external Content-Type
     QString uploadFilePath; // stream from disk
     QList<FileUpload> files; // multipart
+    QList<QPair<QString, QString>> formFields;
     QString referer;
     QString fingerprint;
     QByteArray contextProperties;
+    std::optional<QString> auditLogReason;
+    QByteArray originalMd5;
     HttpCallback callback;
     std::function<void(qint64 sent, qint64 total)> progressCallback; // worker thread!
     std::shared_ptr<std::atomic<bool>> cancelFlag;

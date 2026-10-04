@@ -12,11 +12,24 @@ namespace Core {
 
 PermissionManager::PermissionManager(Snowflake accountId, QObject *parent)
     : QObject(parent),
+      accountId(accountId),
       roleRepo(accountId),
       guildRepo(accountId),
       channelRepo(accountId),
       memberRepo(accountId)
 {
+}
+
+void PermissionManager::setSelfMfaEnabled(bool enabled)
+{
+    selfMfaEnabled = enabled;
+}
+
+Discord::Permissions PermissionManager::applyMfaRequirement(Discord::Permissions permissions, Snowflake userId, const Discord::Guild &guild) const
+{
+    if (userId != accountId || selfMfaEnabled || guild.mfaLevel.valueOr(Discord::MfaLevel::NONE) != Discord::MfaLevel::ELEVATED)
+        return permissions;
+    return permissions & ~Discord::MFA_ELEVATED_PERMISSIONS;
 }
 
 Discord::Permissions PermissionManager::getChannelPermissions(Snowflake userId, Snowflake channelId)
@@ -39,6 +52,45 @@ bool PermissionManager::hasChannelPermission(Snowflake userId, Snowflake channel
     return (perms & permission) == permission;
 }
 
+Discord::Permissions PermissionManager::getGuildPermissions(Snowflake userId, Snowflake guildId)
+{
+    if (userId != accountId)
+        return computeGuildPermissions(userId, guildId).value_or(Discord::NO_PERMISSIONS);
+
+    auto cacheKey = qMakePair(userId, guildId);
+    auto cached = guildPermissionCache.constFind(cacheKey);
+    if (cached != guildPermissionCache.constEnd())
+        return cached.value();
+
+    const auto permissions = computeGuildPermissions(userId, guildId);
+    if (permissions)
+        guildPermissionCache.insert(cacheKey, *permissions);
+    return permissions.value_or(Discord::NO_PERMISSIONS);
+}
+
+bool PermissionManager::hasGuildPermission(Snowflake userId, Snowflake guildId, Discord::Permissions permission)
+{
+    return (getGuildPermissions(userId, guildId) & permission) == permission;
+}
+
+std::optional<Discord::Permissions> PermissionManager::computeGuildPermissions(Snowflake userId, Snowflake guildId)
+{
+    auto guildOpt = guildRepo.getGuild(guildId);
+    if (!guildOpt)
+        return std::nullopt;
+
+    auto memberOpt = memberRepo.getMember(guildId, userId);
+    if (!memberOpt && guildOpt->ownerId.get() != userId)
+        return std::nullopt;
+
+    QList<Snowflake> memberRoleIds;
+    if (memberOpt && memberOpt->roles.hasValue())
+        memberRoleIds = memberOpt->roles.get();
+
+    auto permissions = PermissionComputer::computeBasePermissions(guildOpt->ownerId.get(), userId, guildId, memberRoleIds, roleRepo.getRolesForGuild(guildId));
+    return applyMfaRequirement(permissions, userId, *guildOpt);
+}
+
 void PermissionManager::precomputeGuildPermissions(const Discord::Guild &guild,
                                                    const Discord::Member &member,
                                                    const QList<Discord::Role> &roles,
@@ -48,6 +100,9 @@ void PermissionManager::precomputeGuildPermissions(const Discord::Guild &guild,
     QList<Snowflake> memberRoleIds;
     if (member.roles.hasValue())
         memberRoleIds = member.roles.get();
+
+    auto guildPermissions = PermissionComputer::computeBasePermissions(guild.ownerId.get(), userId, guild.id.get(), memberRoleIds, roles);
+    guildPermissionCache.insert(qMakePair(userId, guild.id.get()), applyMfaRequirement(guildPermissions, userId, guild));
 
     for (const auto &channel : channels) {
         QList<Discord::PermissionOverwrite> overwrites;
@@ -59,7 +114,7 @@ void PermissionManager::precomputeGuildPermissions(const Discord::Guild &guild,
                 overwrites);
 
         auto cacheKey = qMakePair(userId, channel.id.get());
-        permissionCache.insert(cacheKey, permissions);
+        permissionCache.insert(cacheKey, applyMfaRequirement(permissions, userId, guild));
     }
 }
 
@@ -109,8 +164,8 @@ Discord::Permissions PermissionManager::computeChannelPermissions(Snowflake user
     if (member.roles.hasValue())
         memberRoleIds = member.roles.get();
 
-    return PermissionComputer::computeChannelPermissions(
-            guild.ownerId.get(), userId, guildId, false, memberRoleIds, allRoles, overwrites);
+    auto permissions = PermissionComputer::computeChannelPermissions(guild.ownerId.get(), userId, guildId, false, memberRoleIds, allRoles, overwrites);
+    return applyMfaRequirement(permissions, userId, guild);
 }
 
 void PermissionManager::invalidateChannelCache(Snowflake channelId)
@@ -129,6 +184,8 @@ void PermissionManager::invalidateChannelCache(Snowflake channelId)
 
 void PermissionManager::invalidateUserGuildCache(Snowflake userId, Snowflake guildId)
 {
+    guildPermissionCache.remove(qMakePair(userId, guildId));
+
     auto channels = channelRepo.getChannelsForGuild(guildId);
 
     QSet<Snowflake> channelIds;
@@ -149,6 +206,7 @@ void PermissionManager::invalidateUserGuildCache(Snowflake userId, Snowflake gui
 
     for (Snowflake channelId : invalidated)
         emit channelPermissionsChanged(channelId);
+    emit guildPermissionsChanged(guildId);
 
     qCDebug(LogCore) << "Invalidated" << invalidated.size() << "cached permissions for user" << userId << "in guild:" << guildId;
 }

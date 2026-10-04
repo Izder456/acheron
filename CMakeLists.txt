@@ -176,6 +176,7 @@ set(PROJECT_SOURCES
     src/Core/TypingTracker.cpp
     src/Core/PermissionManager.cpp
     src/Core/PermissionComputer.cpp
+    src/Core/RoleHierarchy.cpp
     src/Core/ReadStateManager.cpp
     src/Core/MemberListManager.cpp
     src/Core/RelationshipManager.cpp
@@ -212,6 +213,23 @@ set(PROJECT_SOURCES
     src/UI/Settings/SettingsWindow.cpp
     src/UI/Settings/GeneralPage.cpp
     src/UI/Settings/AppearancePage.cpp
+    src/UI/GuildSettings/AuditLogFormatter.cpp
+    src/UI/GuildSettings/GuildAuditLogPage.cpp
+    src/UI/GuildSettings/GuildBansPage.cpp
+    src/UI/GuildSettings/GuildBoostPerksPage.cpp
+    src/UI/GuildSettings/GuildEmojiPage.cpp
+    src/UI/GuildSettings/GuildEngagementPage.cpp
+    src/UI/GuildSettings/GuildInvitesPage.cpp
+    src/UI/GuildSettings/GuildMembersPage.cpp
+    src/UI/GuildSettings/GuildProfilePage.cpp
+    src/UI/GuildSettings/GuildRolesPage.cpp
+    src/UI/GuildSettings/GuildSettingsPage.cpp
+    src/UI/GuildSettings/GuildSettingsSection.cpp
+    src/UI/GuildSettings/GuildSettingsWindow.cpp
+    src/UI/GuildSettings/GuildStickersPage.cpp
+    src/UI/GuildSettings/ImageUpload.cpp
+    src/UI/GuildSettings/MemberModeration.cpp
+    src/UI/GuildSettings/UnsavedChangesBar.cpp
     src/UI/Accounts/AccountsModel.cpp
     src/UI/ChannelList/ChannelDelegate.cpp
     src/UI/ChannelList/ChannelTreeModel.cpp
@@ -266,6 +284,7 @@ set(PROJECT_SOURCES
     src/Discord/LoginClient.cpp
     src/Discord/IngestThread.cpp
     src/Discord/HttpClient.cpp
+    src/Discord/ApiError.cpp
     src/Discord/RequestWorker.cpp
     src/Discord/CurlUtils.cpp
     src/Discord/CdnUrls.cpp
@@ -387,7 +406,7 @@ if (MSVC)
     endif()
 
     if(BUILD_TESTS)
-        set(_msvc_test_targets TestMarkdown TestUnicodeEmoji TestFrecency TestProto TestProxy)
+        set(_msvc_test_targets TestMarkdown TestUnicodeEmoji TestOrderedJson TestFrecency TestProto TestProxy)
         if(TARGET TestApng)
             list(APPEND _msvc_test_targets TestApng)
         endif()

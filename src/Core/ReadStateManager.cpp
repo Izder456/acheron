@@ -435,6 +435,19 @@ void ReadStateManager::setGuildReadInfo(Snowflake guildId, const QDateTime &join
     guildInfo.insert(guildId, info);
 }
 
+void ReadStateManager::updateGuildDefaults(Snowflake guildId, Discord::MessageNotificationLevel defaultMessageNotifications, bool isCommunity)
+{
+    auto it = guildInfo.find(guildId);
+    if (it == guildInfo.end())
+        return;
+    if (it->defaultMessageNotifications == defaultMessageNotifications && it->isCommunity == isCommunity)
+        return;
+
+    it->defaultMessageNotifications = defaultMessageNotifications;
+    it->isCommunity = isCommunity;
+    emit guildSettingsUpdated(guildId);
+}
+
 void ReadStateManager::registerChannelGuild(Snowflake channelId, Snowflake guildId)
 {
     if (!channelId.isValid() || !guildId.isValid())

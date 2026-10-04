@@ -23,6 +23,11 @@ ServerRailView::ServerRailView(QWidget *parent)
     setMouseTracking(true);
 }
 
+void ServerRailView::setGuildSettingsProvider(GuildSettingsAccess::SectionsProvider provider)
+{
+    guildSettingsProvider = std::move(provider);
+}
+
 void ServerRailView::mousePressEvent(QMouseEvent *event)
 {
     if (event->button() != Qt::LeftButton)
@@ -76,6 +81,10 @@ void ServerRailView::contextMenuEvent(QContextMenuEvent *event)
 
     if (!isFolder) {
         Core::Snowflake ownerId(idx.data(ServerRailModel::OwnerIdRole).toULongLong());
+
+        GuildSettingsAccess::addMenu(&menu, guildSettingsProvider, accountId, id, [this, accountId, id](GuildSettingsSection section) {
+            emit guildSettingsRequested(accountId, id, section);
+        });
 
         menu.addSeparator();
         QAction *leaveAction = menu.addAction(tr("Leave"));

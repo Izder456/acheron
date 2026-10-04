@@ -55,6 +55,11 @@ std::optional<QList<Snowflake>> UserManager::getMemberRoles(Snowflake guildId, S
     return dbMember->roles.hasValue() ? dbMember->roles.get() : QList<Snowflake>{};
 }
 
+QList<Discord::Member> UserManager::getKnownMembers(Snowflake guildId)
+{
+    return memberRepo.getMembersWithUsers(guildId);
+}
+
 void UserManager::setRelationshipManager(RelationshipManager *manager)
 {
     relationshipManager = manager;
@@ -151,6 +156,12 @@ void UserManager::saveMemberWithUser(Snowflake guildId, const Discord::Member &m
         saveUser(member.user.get());
         saveMember(guildId, member.user->id, member);
     }
+}
+
+void UserManager::removeMember(Snowflake guildId, Snowflake userId)
+{
+    memberCache.remove(MemberKey{ guildId, userId });
+    memberRepo.deleteMember(guildId, userId);
 }
 
 void UserManager::loadNotesFromReady(const QHash<Snowflake, QString> &readyNotes)

@@ -30,6 +30,7 @@ public:
     void setGuildReadInfo(Snowflake guildId, const QDateTime &joinedAt,
                           Discord::MessageNotificationLevel defaultMessageNotifications,
                           bool isCommunity);
+    void updateGuildDefaults(Snowflake guildId, Discord::MessageNotificationLevel defaultMessageNotifications, bool isCommunity);
     void registerChannelGuild(Snowflake channelId, Snowflake guildId);
     void registerChannel(const Discord::Channel &channel, Snowflake guildId);
     void registerPrivateChannel(const Discord::Channel &channel);

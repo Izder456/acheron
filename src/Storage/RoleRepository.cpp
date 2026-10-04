@@ -28,6 +28,25 @@ static Discord::Role readRoleFromQuery(const QSqlQuery &q)
         role.managed = q.value(8).toBool();
     if (!q.value(9).isNull())
         role.mentionable = q.value(9).toBool();
+    if (!q.value(10).isNull()) {
+        Discord::RoleColors colors;
+        colors.primaryColor = q.value(10).toInt();
+        if (q.value(11).isNull())
+            colors.secondaryColor = nullptr;
+        else
+            colors.secondaryColor = q.value(11).toInt();
+        if (q.value(12).isNull())
+            colors.tertiaryColor = nullptr;
+        else
+            colors.tertiaryColor = q.value(12).toInt();
+        role.colors = colors;
+    }
+    if (!q.value(13).isNull())
+        role.flags = q.value(13).toInt();
+    if (!q.value(14).isNull()) {
+        role.tagsJson = q.value(14).toString();
+        role.tags = Discord::RoleTags::fromJson(QJsonDocument::fromJson(role.tagsJson.toUtf8()).object());
+    }
     return role;
 }
 
@@ -39,9 +58,16 @@ RoleRepository::RoleRepository(Core::Snowflake accountId)
 static const char *ROLE_UPSERT_SQL = R"(
     INSERT OR REPLACE INTO roles
     (id, guild_id, name, permissions, position, color, hoist, icon,
-     unicode_emoji, managed, mentionable)
+     unicode_emoji, managed, mentionable, colors_primary, colors_secondary,
+     colors_tertiary, flags, tags)
     VALUES (:id, :guild_id, :name, :permissions, :position, :color, :hoist,
-            :icon, :unicode_emoji, :managed, :mentionable)
+            :icon, :unicode_emoji, :managed, :mentionable, :colors_primary,
+            :colors_secondary, :colors_tertiary, :flags, :tags)
+)";
+
+static const char *ROLE_COLUMNS = R"(
+    id, name, permissions, position, color, hoist, icon, unicode_emoji, managed, mentionable,
+    colors_primary, colors_secondary, colors_tertiary, flags, tags
 )";
 
 void RoleRepository::bindRole(QSqlQuery &q, Core::Snowflake guildId, const Discord::Role &role)
@@ -57,6 +83,13 @@ void RoleRepository::bindRole(QSqlQuery &q, Core::Snowflake guildId, const Disco
     bindOptional(q, ":unicode_emoji", role.unicodeEmoji);
     bindOptional(q, ":managed", role.managed);
     bindOptional(q, ":mentionable", role.mentionable);
+
+    const bool hasColors = role.colors.hasValue();
+    q.bindValue(":colors_primary", hasColors ? QVariant(role.colors->primaryColor.get()) : QVariant());
+    q.bindValue(":colors_secondary", hasColors && role.colors->secondaryColor.hasValue() ? QVariant(role.colors->secondaryColor.get()) : QVariant());
+    q.bindValue(":colors_tertiary", hasColors && role.colors->tertiaryColor.hasValue() ? QVariant(role.colors->tertiaryColor.get()) : QVariant());
+    bindOptional(q, ":flags", role.flags);
+    q.bindValue(":tags", role.tagsJson.isEmpty() ? QVariant() : QVariant(role.tagsJson));
 }
 
 void RoleRepository::saveRole(Core::Snowflake guildId, const Discord::Role &role, QSqlDatabase &db)
@@ -87,11 +120,7 @@ std::optional<Discord::Role> RoleRepository::getRole(Core::Snowflake guildId,
 {
     auto db = getDb();
     QSqlQuery q(db);
-    q.prepare(R"(
-        SELECT id, name, permissions, position, color, hoist, icon,
-               unicode_emoji, managed, mentionable
-        FROM roles WHERE guild_id = :guild_id AND id = :id
-    )");
+    q.prepare(QStringLiteral("SELECT %1 FROM roles WHERE guild_id = :guild_id AND id = :id").arg(QLatin1String(ROLE_COLUMNS)));
     q.bindValue(":guild_id", static_cast<qint64>(guildId));
     q.bindValue(":id", static_cast<qint64>(roleId));
 
@@ -106,12 +135,7 @@ QList<Discord::Role> RoleRepository::getRolesForGuild(Core::Snowflake guildId)
     QList<Discord::Role> roles;
     auto db = getDb();
     QSqlQuery q(db);
-    q.prepare(R"(
-        SELECT id, name, permissions, position, color, hoist, icon,
-               unicode_emoji, managed, mentionable
-        FROM roles WHERE guild_id = :guild_id
-        ORDER BY position ASC
-    )");
+    q.prepare(QStringLiteral("SELECT %1 FROM roles WHERE guild_id = :guild_id ORDER BY position ASC").arg(QLatin1String(ROLE_COLUMNS)));
     q.bindValue(":guild_id", static_cast<qint64>(guildId));
 
     if (!execLogged(q, "RoleRepository: Get roles"))

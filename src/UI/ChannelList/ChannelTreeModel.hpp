@@ -66,6 +66,7 @@ public:
 
     ChannelNode *nodeFromIndex(const QModelIndex &index) const;
     void addGuild(const Discord::GatewayGuild &guild, Snowflake accountId);
+    void updateGuild(const Discord::Guild &guild, Snowflake accountId);
     void removeGuild(Snowflake accountId, Snowflake guildId);
     void addChannel(const Discord::ChannelCreate &event, Snowflake accountId);
     void updateChannel(const Discord::ChannelUpdate &update, Snowflake accountId);

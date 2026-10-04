@@ -29,6 +29,8 @@
 #include "TabBar/TabBar.hpp"
 #include "Accounts/AccountsWindow.hpp"
 #include "Settings/SettingsWindow.hpp"
+#include "GuildSettings/GuildSettingsWindow.hpp"
+#include "GuildSettings/MemberModeration.hpp"
 #include "Accounts/AccountsModel.hpp"
 #include "Core/ClientInstance.hpp"
 #include "Core/AccountInfo.hpp"
@@ -211,6 +213,12 @@ MainWindow::MainWindow(Session *session, QWidget *parent) : QMainWindow(parent),
     }
 
     restoreWindowState();
+}
+
+MainWindow::~MainWindow()
+{
+    for (const QPointer<GuildSettingsWindow> &window : std::as_const(guildSettingsWindows))
+        delete window.data();
 }
 
 void MainWindow::closeEvent(QCloseEvent *event)
@@ -750,6 +758,27 @@ void MainWindow::confirmAndLeaveGuild(Snowflake accountId, Snowflake guildId)
     instance->discord()->leaveGuild(guildId);
 }
 
+QList<GuildSettingsSection> MainWindow::guildSettingsSections(Snowflake accountId, Snowflake guildId)
+{
+    return GuildSettingsAccess::visibleSections(session->client(accountId), guildId);
+}
+
+void MainWindow::openGuildSettings(Snowflake accountId, Snowflake guildId, GuildSettingsSection section)
+{
+    ClientInstance *instance = session->client(accountId);
+    if (!GuildSettingsAccess::canOpen(instance, guildId))
+        return;
+
+    QPointer<GuildSettingsWindow> &window = guildSettingsWindows[qMakePair(accountId, guildId)];
+    if (!window)
+        window = new GuildSettingsWindow(session->getImageManager(), instance, guildId);
+    window->openSection(section);
+    window->setWindowState(window->windowState() & ~Qt::WindowMinimized);
+    window->show();
+    window->raise();
+    window->activateWindow();
+}
+
 void MainWindow::setupPermanentConnections(Core::ClientInstance *instance)
 {
     if (!instance)
@@ -765,6 +794,12 @@ void MainWindow::setupPermanentConnections(Core::ClientInstance *instance)
                 if (channelListMode == ChannelListMode::Tree)
                     channelTree->performDefaultExpansion();
             });
+
+    connect(instance, &Core::ClientInstance::guildUpdated, this, [this, instance](const Discord::Guild &guild) {
+        channelTreeModel->updateGuild(guild, instance->accountId());
+        if (railHasSelection && !railSelectedIsHome && railSelectedAccountId == instance->accountId() && railSelectedGuildId == guild.id.get())
+            guildHeaderLabel->setText(guild.name);
+    });
 
     connect(instance, &Core::ClientInstance::guildRemoved, this,
             [this, instance](Snowflake guildId) {
@@ -1006,6 +1041,8 @@ void MainWindow::setupUi()
             });
 
     connect(serverRail, &ServerRailView::leaveGuildRequested, this, &MainWindow::confirmAndLeaveGuild);
+    serverRail->setGuildSettingsProvider(std::bind_front(&MainWindow::guildSettingsSections, this));
+    connect(serverRail, &ServerRailView::guildSettingsRequested, this, &MainWindow::openGuildSettings);
 
     guildHeaderLabel = new QLabel(this);
     guildHeaderLabel->setContentsMargins(12, 8, 12, 8);
@@ -1448,6 +1485,8 @@ void MainWindow::setupUi()
     connect(channelTree, &ChannelTreeView::leaveThreadRequested, this, [threadMembership](const QModelIndex &proxyIndex) { threadMembership(proxyIndex, false); });
 
     connect(channelTree, &ChannelTreeView::leaveGuildRequested, this, &MainWindow::confirmAndLeaveGuild);
+    channelTree->setGuildSettingsProvider(std::bind_front(&MainWindow::guildSettingsSections, this));
+    connect(channelTree, &ChannelTreeView::guildSettingsRequested, this, &MainWindow::openGuildSettings);
 
 #ifndef ACHERON_NO_VOICE
     connect(channelTree, &ChannelTreeView::joinVoiceChannelRequested, this,
@@ -2567,17 +2606,23 @@ void MainWindow::showUserContextMenu(ClientInstance *instance, Snowflake userId,
     });
 
     if (guildId.isValid() && instance) {
-        QMenu *rolesMenu = menu.addMenu(tr("Roles"));
-        const auto memberRoles = instance->getMemberRolesSorted(guildId, userId);
-        if (memberRoles.isEmpty()) {
-            rolesMenu->addAction(tr("No roles"))->setEnabled(false);
-        } else {
-            for (const auto &role : memberRoles) {
-                auto *action = new QWidgetAction(rolesMenu);
-                action->setDefaultWidget(buildRoleChip(role, rolesMenu));
-                rolesMenu->addAction(action);
+        const auto target = MemberModeration::targetFor(instance, guildId, userId);
+        const bool moderationAddsRolesMenu = target && MemberModeration::canEditRoles(instance, *target);
+        if (!moderationAddsRolesMenu) {
+            QMenu *rolesMenu = menu.addMenu(tr("Roles"));
+            const auto memberRoles = instance->getMemberRolesSorted(guildId, userId);
+            if (memberRoles.isEmpty()) {
+                rolesMenu->addAction(tr("No roles"))->setEnabled(false);
+            } else {
+                for (const auto &role : memberRoles) {
+                    auto *action = new QWidgetAction(rolesMenu);
+                    action->setDefaultWidget(buildRoleChip(role, rolesMenu));
+                    rolesMenu->addAction(action);
+                }
             }
         }
+        if (target)
+            MemberModeration::addModerationActions(&menu, this, instance, *target);
     }
 
     menu.addSeparator();

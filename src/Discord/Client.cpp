@@ -5,6 +5,7 @@
 #include <QJsonObject>
 #include <QPointer>
 
+#include "ApiError.hpp"
 #include "Enums.hpp"
 #include "Core/Logging.hpp"
 #include "Proto/ProtoReader.hpp"
@@ -46,6 +47,80 @@ std::optional<Proto::FrecencyUserSettings> decodeFrecencySettings(const QJsonObj
 
     Proto::ProtoReader reader(proto);
     return Proto::FrecencyUserSettings::fromProto(reader);
+}
+
+QString guildEndpoint(Snowflake guildId, const QString &path = {})
+{
+    return "/guilds/" + QString::number(guildId) + path;
+}
+
+QString memberEndpoint(Snowflake guildId, Snowflake userId)
+{
+    return guildEndpoint(guildId, "/members/" + QString::number(userId));
+}
+
+QString roleEndpoint(Snowflake guildId, Snowflake roleId, const QString &path = {})
+{
+    return guildEndpoint(guildId, "/roles/" + QString::number(roleId) + path);
+}
+
+QJsonArray snowflakeArray(const QList<Snowflake> &ids)
+{
+    QJsonArray array;
+    for (Snowflake id : ids)
+        array.append(QString::number(id));
+    return array;
+}
+
+HttpCallback actionHandler(const char *what, Client::ActionCallback callback)
+{
+    return [what, callback = std::move(callback)](const HttpResponse &response) {
+        if (!response.success) {
+            const ApiError error = ApiError::fromResponse(response);
+            qCWarning(LogDiscord) << what << "failed with status" << response.statusCode << ":" << error.message;
+            if (callback)
+                callback(Core::Result<void>::makeError(error.message, error.code));
+            return;
+        }
+        if (callback)
+            callback(Core::Result<void>::makeOk());
+    };
+}
+
+template <typename T, typename Parse>
+HttpCallback valueHandler(const char *what, Client::ResultCallback<T> callback, Parse parse)
+{
+    return [what, callback = std::move(callback), parse = std::move(parse)](const HttpResponse &response) {
+        if (!response.success) {
+            const ApiError error = ApiError::fromResponse(response);
+            qCWarning(LogDiscord) << what << "failed with status" << response.statusCode << ":" << error.message;
+            callback(Core::Result<T>::makeError(error.message, error.code));
+            return;
+        }
+        callback(Core::Result<T>::makeOk(parse(QJsonDocument::fromJson(response.body))));
+    };
+}
+
+template <typename T>
+QList<T> parseArray(const QJsonDocument &doc)
+{
+    QList<T> list;
+    for (const QJsonValue &value : doc.array())
+        list.append(T::fromJson(value.toObject()));
+    return list;
+}
+
+QByteArray originalMd5Header(const QMap<QString, QByteArray> &md5s)
+{
+    QList<QByteArray> parts;
+    for (auto it = md5s.constBegin(); it != md5s.constEnd(); ++it)
+        parts.append(it.key().toLower().toUtf8() + "=\"" + it.value() + '"');
+    return parts.join(", ");
+}
+
+QString isoTimestamp(const QDateTime &time)
+{
+    return time.toUTC().toString(Qt::ISODateWithMs);
 }
 
 } // namespace
@@ -92,13 +167,20 @@ Client::Client(const QString &token, const QString &gatewayUrl, const QString &b
     connect(gateway, &Gateway::gatewayThreadMembersUpdate, this, &Client::threadMembersUpdated);
     connect(gateway, &Gateway::gatewayForumUnreads, this, &Client::forumUnreads);
     connect(gateway, &Gateway::gatewayGuildCreate, this, &Client::onGatewayGuildCreate);
+    connect(gateway, &Gateway::gatewayGuildUpdate, this, &Client::onGatewayGuildUpdate);
     connect(gateway, &Gateway::gatewayGuildDelete, this, &Client::onGatewayGuildDelete);
     connect(gateway, &Gateway::gatewayGuildMembersChunk, this, &Client::guildMembersChunk);
+    connect(gateway, &Gateway::gatewayGuildMemberAdd, this, &Client::guildMemberAdded);
     connect(gateway, &Gateway::gatewayGuildMemberUpdate, this, &Client::guildMemberUpdated);
+    connect(gateway, &Gateway::gatewayGuildMemberRemove, this, &Client::guildMemberRemoved);
     connect(gateway, &Gateway::gatewayGuildRoleCreate, this, &Client::onGatewayGuildRoleCreate);
     connect(gateway, &Gateway::gatewayGuildRoleUpdate, this, &Client::onGatewayGuildRoleUpdate);
     connect(gateway, &Gateway::gatewayGuildRoleDelete, this, &Client::onGatewayGuildRoleDelete);
     connect(gateway, &Gateway::gatewayGuildEmojisUpdate, this, &Client::guildEmojisUpdated);
+    connect(gateway, &Gateway::gatewayGuildStickersUpdate, this, &Client::guildStickersUpdated);
+    connect(gateway, &Gateway::gatewayGuildBanAdd, this, &Client::guildBanAdded);
+    connect(gateway, &Gateway::gatewayGuildBanRemove, this, &Client::guildBanRemoved);
+    connect(gateway, &Gateway::gatewayGuildPruneUpdate, this, &Client::guildPruneUpdated);
     connect(gateway, &Gateway::gatewayMessageAck, this, &Client::messageAcked);
     connect(gateway, &Gateway::gatewayMessageReactionAdd, this, &Client::messageReactionAdd);
     connect(gateway, &Gateway::gatewayMessageReactionAddMany, this, &Client::messageReactionAddMany);
@@ -632,6 +714,13 @@ void Client::onGatewayGuildCreate(const GatewayGuild &guild)
     indexGuildMappings(guild);
 
     emit guildCreated(guild);
+}
+
+void Client::onGatewayGuildUpdate(const Guild &guild)
+{
+    guildPremiumTiers.insert(guild.id.get(), guild.premiumTier.valueOr(PremiumTier::NONE));
+
+    emit guildUpdated(guild);
 }
 
 void Client::onGatewayGuildDelete(const GuildDelete &event)
@@ -1232,9 +1321,14 @@ void Client::sendVoiceStateUpdate(Snowflake guildId, Snowflake channelId, bool s
     gateway->sendVoiceStateUpdate(guildId, channelId, selfMute, selfDeaf);
 }
 
-void Client::requestGuildMembers(Snowflake guildId, const QList<Snowflake> &userIds)
+void Client::requestGuildMembers(Snowflake guildId, const QList<Snowflake> &userIds, bool presences)
 {
-    gateway->requestGuildMembers(guildId, userIds);
+    gateway->requestGuildMembers(guildId, userIds, presences);
+}
+
+void Client::queryGuildMembers(Snowflake guildId, const QString &query, int limit)
+{
+    gateway->queryGuildMembers(guildId, query, limit, false);
 }
 
 [[nodiscard]] const Proto::PreloadedUserSettings &Client::getSettings() const
@@ -1300,6 +1394,468 @@ void Client::patchFrecencySettings(const QByteArray &partialProto,
 
                           callback(result);
                       });
+}
+
+HttpCallback Client::applyThen(std::function<void(const QJsonDocument &)> apply, HttpCallback finish)
+{
+    QPointer<Client> self(this);
+    return [self, apply = std::move(apply), finish = std::move(finish)](const HttpResponse &response) {
+        if (self && response.success)
+            apply(QJsonDocument::fromJson(response.body));
+        finish(response);
+    };
+}
+
+void Client::fetchGuildProfile(Snowflake guildId, ResultCallback<GuildProfileEdit> callback)
+{
+    httpClient->get(guildEndpoint(guildId, "/profile"), {},
+                    valueHandler<GuildProfileEdit>("Fetching the guild profile", std::move(callback),
+                                                   [](const QJsonDocument &doc) {
+                                                       return GuildProfileEdit::fromProfile(doc.object());
+                                                   }));
+}
+
+void Client::modifyGuildProfile(Snowflake guildId, const GuildProfileEdit &edit, ResultCallback<GuildProfileEdit> callback)
+{
+    httpClient->patch(guildEndpoint(guildId, "/profile"), edit.toJson(),
+                      valueHandler<GuildProfileEdit>("Saving the guild profile", std::move(callback),
+                                                     [](const QJsonDocument &doc) {
+                                                         return GuildProfileEdit::fromProfile(doc.object());
+                                                     }));
+}
+
+void Client::modifyGuild(Snowflake guildId, const GuildEdit &edit, const QMap<QString, QByteArray> &originalMd5s, ActionCallback callback)
+{
+    RequestOptions options;
+    options.originalMd5 = originalMd5Header(originalMd5s);
+    httpClient->send(HttpClient::Method::PATCH, guildEndpoint(guildId), edit.toJson().toBytes(), options,
+                     applyThen([this](const QJsonDocument &doc) { onGatewayGuildUpdate(Guild::fromJson(doc.object())); },
+                               actionHandler("Saving guild settings", std::move(callback))));
+}
+
+void Client::deleteGuild(Snowflake guildId, ActionCallback callback)
+{
+    httpClient->send(HttpClient::Method::POST, guildEndpoint(guildId, "/delete"), {}, {}, actionHandler("Deleting a guild", std::move(callback)));
+}
+
+void Client::createRole(Snowflake guildId, ResultCallback<Role> callback)
+{
+    Core::OrderedJson colors;
+    colors.insert("primary_color", 0);
+    colors.insert("secondary_color", QJsonValue::Null);
+    colors.insert("tertiary_color", QJsonValue::Null);
+
+    Core::OrderedJson body;
+    body.insert("name", "new role");
+    body.insert("color", 0);
+    body.insert("colors", colors);
+    body.insert("permissions", "0");
+
+    httpClient->post(guildEndpoint(guildId, "/roles"), body,
+                     applyThen(
+                             [this, guildId](const QJsonDocument &doc) {
+                                 GuildRoleCreate event;
+                                 event.guildId = guildId;
+                                 event.role = Role::fromJson(doc.object());
+                                 onGatewayGuildRoleCreate(event);
+                             },
+                             valueHandler<Role>("Creating a role", std::move(callback),
+                                                [](const QJsonDocument &doc) { return Role::fromJson(doc.object()); })));
+}
+
+void Client::modifyRole(Snowflake guildId, Snowflake roleId, const RoleEdit &edit, ActionCallback callback)
+{
+    httpClient->patch(roleEndpoint(guildId, roleId), edit.toJson(),
+                      applyThen(
+                              [this, guildId](const QJsonDocument &doc) {
+                                  GuildRoleUpdate event;
+                                  event.guildId = guildId;
+                                  event.role = Role::fromJson(doc.object());
+                                  onGatewayGuildRoleUpdate(event);
+                              },
+                              actionHandler("Saving a role", std::move(callback))));
+}
+
+void Client::modifyRolePositions(Snowflake guildId, const QList<QPair<Snowflake, int>> &positions, ActionCallback callback)
+{
+    Core::OrderedJson::Array body;
+    QSet<Snowflake> moved;
+    for (const auto &[roleId, position] : positions) {
+        Core::OrderedJson entry;
+        entry.insert("id", QString::number(roleId));
+        entry.insert("position", position);
+        body.append(entry);
+        moved.insert(roleId);
+    }
+
+    httpClient->patch(guildEndpoint(guildId, "/roles"), body,
+                      applyThen(
+                              [this, guildId, moved](const QJsonDocument &doc) {
+                                  for (const Role &role : parseArray<Role>(doc)) {
+                                      if (!moved.contains(role.id.get()))
+                                          continue;
+                                      GuildRoleUpdate event;
+                                      event.guildId = guildId;
+                                      event.role = role;
+                                      onGatewayGuildRoleUpdate(event);
+                                  }
+                              },
+                              actionHandler("Reordering roles", std::move(callback))));
+}
+
+void Client::deleteRole(Snowflake guildId, Snowflake roleId, ActionCallback callback)
+{
+    httpClient->delete_(roleEndpoint(guildId, roleId), applyThen(
+                                                               [this, guildId, roleId](const QJsonDocument &) {
+                                                                   GuildRoleDelete event;
+                                                                   event.guildId = guildId;
+                                                                   event.roleId = roleId;
+                                                                   onGatewayGuildRoleDelete(event);
+                                                               },
+                                                               actionHandler("Deleting a role", std::move(callback))));
+}
+
+void Client::fetchRoleMemberCounts(Snowflake guildId, ResultCallback<QHash<Snowflake, int>> callback)
+{
+    httpClient->get(guildEndpoint(guildId, "/roles/member-counts"), {},
+                    valueHandler<QHash<Snowflake, int>>("Fetching role member counts", std::move(callback),
+                                                        [](const QJsonDocument &doc) {
+                                                            QHash<Snowflake, int> counts;
+                                                            const QJsonObject obj = doc.object();
+                                                            for (auto it = obj.constBegin(); it != obj.constEnd(); ++it)
+                                                                counts.insert(Snowflake(it.key().toULongLong()), it.value().toInt());
+                                                            return counts;
+                                                        }));
+}
+
+void Client::fetchRoleMemberIds(Snowflake guildId, Snowflake roleId, ResultCallback<QList<Snowflake>> callback)
+{
+    httpClient->get(roleEndpoint(guildId, roleId, "/member-ids"), {},
+                    valueHandler<QList<Snowflake>>("Fetching role members", std::move(callback),
+                                                   [](const QJsonDocument &doc) {
+                                                       QList<Snowflake> ids;
+                                                       for (const QJsonValue &value : doc.array())
+                                                           ids.append(Snowflake(value.toString().toULongLong()));
+                                                       return ids;
+                                                   }));
+}
+
+void Client::addRoleMembers(Snowflake guildId, Snowflake roleId, const QList<Snowflake> &userIds, ResultCallback<QList<Snowflake>> callback)
+{
+    Core::OrderedJson body;
+    body.insert("member_ids", snowflakeArray(userIds));
+
+    QPointer<Client> self(this);
+    auto counted = [self, guildId, roleId, callback = std::move(callback)](const Core::Result<QList<Snowflake>> &result) {
+        if (self && result.success())
+            emit self->roleMemberCountChanged(guildId, roleId, int(result.value->size()));
+        callback(result);
+    };
+    httpClient->patch(roleEndpoint(guildId, roleId, "/members"), body,
+                      applyThen(
+                              [this, guildId](const QJsonDocument &doc) {
+                                  const QJsonObject members = doc.object();
+                                  for (auto it = members.constBegin(); it != members.constEnd(); ++it) {
+                                      GuildMemberUpdate event;
+                                      event.guildId = guildId;
+                                      event.member = Member::fromJson(it.value().toObject());
+                                      emit guildMemberUpdated(event);
+                                  }
+                              },
+                              valueHandler<QList<Snowflake>>("Adding role members", std::move(counted), [](const QJsonDocument &doc) {
+                                  QList<Snowflake> added;
+                                  const QJsonObject members = doc.object();
+                                  for (auto it = members.constBegin(); it != members.constEnd(); ++it)
+                                      added.append(Snowflake(it.key().toULongLong()));
+                                  return added;
+                              })));
+}
+
+void Client::searchGuildMembers(Snowflake guildId, const MemberSearchQuery &query, ResultCallback<MemberSearchPage> callback)
+{
+    httpClient->post(guildEndpoint(guildId, "/members-search"), query.toJson(), [callback](const HttpResponse &response) {
+        if (!response.success) {
+            const ApiError error = ApiError::fromResponse(response);
+            qCWarning(LogDiscord) << "Member search failed with status" << response.statusCode << ":" << error.message;
+            callback(Core::Result<MemberSearchPage>::makeError(error.message, error.code));
+            return;
+        }
+
+        const QJsonObject obj = QJsonDocument::fromJson(response.body).object();
+        MemberSearchPage page;
+        if (response.statusCode == 202) {
+            page.indexingRetryAfterSeconds = qMax(1, qRound(obj.value("retry_after").toDouble(1.0)));
+            callback(Core::Result<MemberSearchPage>::makeOk(page));
+            return;
+        }
+
+        for (const QJsonValue &value : obj.value("members").toArray())
+            page.members.append(MemberSearchResult::fromJson(value.toObject()));
+        page.totalResultCount = obj.value("total_result_count").toInt();
+        callback(Core::Result<MemberSearchPage>::makeOk(page));
+    });
+}
+
+HttpCallback Client::memberUpdateHandler(Snowflake guildId, const char *what, ActionCallback callback)
+{
+    return applyThen(
+            [this, guildId](const QJsonDocument &doc) {
+                GuildMemberUpdate event;
+                event.guildId = guildId;
+                event.member = Member::fromJson(doc.object());
+                emit guildMemberUpdated(event);
+            },
+            actionHandler(what, std::move(callback)));
+}
+
+HttpCallback Client::memberRemovalHandler(Snowflake guildId, Snowflake userId, const char *what, ActionCallback callback)
+{
+    return applyThen(
+            [this, guildId, userId](const QJsonDocument &) {
+                User user;
+                user.id = userId;
+                GuildMemberRemove event;
+                event.guildId = guildId;
+                event.user = user;
+                emit guildMemberRemoved(event);
+            },
+            actionHandler(what, std::move(callback)));
+}
+
+void Client::setMemberRoles(Snowflake guildId, Snowflake userId, const QList<Snowflake> &roleIds,
+                            const QList<Snowflake> &added, const QList<Snowflake> &removed, ActionCallback callback)
+{
+    Core::OrderedJson body;
+    body.insert("roles", snowflakeArray(roleIds));
+
+    QPointer<Client> self(this);
+    auto counted = [self, guildId, added, removed, callback = std::move(callback)](const Core::Result<void> &result) {
+        if (self && result.success()) {
+            for (Snowflake roleId : added)
+                emit self->roleMemberCountChanged(guildId, roleId, 1);
+            for (Snowflake roleId : removed)
+                emit self->roleMemberCountChanged(guildId, roleId, -1);
+        }
+        if (callback)
+            callback(result);
+    };
+    httpClient->patch(memberEndpoint(guildId, userId), body, memberUpdateHandler(guildId, "Updating member roles", std::move(counted)));
+}
+
+void Client::setMemberNickname(Snowflake guildId, Snowflake userId, const QString &nick, ActionCallback callback)
+{
+    Core::OrderedJson body;
+    body.insert("nick", nick);
+    httpClient->patch(memberEndpoint(guildId, userId), body, memberUpdateHandler(guildId, "Changing a nickname", std::move(callback)));
+}
+
+void Client::setMemberTimeout(Snowflake guildId, Snowflake userId, const QDateTime &until, const std::optional<QString> &reason, ActionCallback callback)
+{
+    Core::OrderedJson body;
+    body.insert("communication_disabled_until", until.isValid() ? QJsonValue(isoTimestamp(until)) : QJsonValue());
+
+    RequestOptions options;
+    options.auditLogReason = reason;
+    httpClient->send(HttpClient::Method::PATCH, memberEndpoint(guildId, userId), body.toBytes(), options,
+                     memberUpdateHandler(guildId, "Timing out a member", std::move(callback)));
+}
+
+void Client::kickMember(Snowflake guildId, Snowflake userId, const QString &reason, ActionCallback callback)
+{
+    const QString endpoint = memberEndpoint(guildId, userId) + "?reason=" + QString::fromLatin1(encodeUriComponent(reason));
+    httpClient->delete_(endpoint, memberRemovalHandler(guildId, userId, "Kicking a member", std::move(callback)));
+}
+
+void Client::banMember(Snowflake guildId, Snowflake userId, int deleteMessageSeconds, const QString &reason, ActionCallback callback)
+{
+    Core::OrderedJson body;
+    body.insert("delete_message_seconds", deleteMessageSeconds);
+
+    RequestOptions options;
+    options.auditLogReason = reason;
+    httpClient->send(HttpClient::Method::PUT, guildEndpoint(guildId, "/bans/" + QString::number(userId)),
+                     body.toBytes(), options,
+                     memberRemovalHandler(guildId, userId, "Banning a member", std::move(callback)));
+}
+
+void Client::unbanMember(Snowflake guildId, Snowflake userId, ActionCallback callback)
+{
+    httpClient->delete_(guildEndpoint(guildId, "/bans/" + QString::number(userId)), actionHandler("Revoking a ban", std::move(callback)));
+}
+
+void Client::requestPruneCount(Snowflake guildId, int days, const QList<Snowflake> &includeRoles, ActionCallback callback)
+{
+    QUrlQuery query;
+    query.addQueryItem("days", QString::number(days));
+    for (Snowflake roleId : includeRoles)
+        query.addQueryItem("include_roles", QString::number(roleId));
+    httpClient->get(guildEndpoint(guildId, "/prune/v2"), query, actionHandler("Estimating a prune", std::move(callback)));
+}
+
+void Client::pruneMembers(Snowflake guildId, int days, const QList<Snowflake> &includeRoles, ActionCallback callback)
+{
+    Core::OrderedJson body;
+    body.insert("days", days);
+    body.insert("compute_prune_count", false);
+    body.insert("include_roles", snowflakeArray(includeRoles));
+    httpClient->post(guildEndpoint(guildId, "/prune"), body, actionHandler("Pruning members", std::move(callback)));
+}
+
+void Client::setMemberUpdatesSubscription(Snowflake guildId, bool subscribed)
+{
+    gateway->setMemberUpdatesSubscription(guildId, subscribed);
+}
+
+void Client::fetchBans(Snowflake guildId, Snowflake after, ResultCallback<QList<Ban>> callback)
+{
+    QUrlQuery query;
+    query.addQueryItem("limit", "1000");
+    if (after.isValid())
+        query.addQueryItem("after", QString::number(after));
+    httpClient->get(guildEndpoint(guildId, "/bans"), query, valueHandler<QList<Ban>>("Fetching bans", std::move(callback), parseArray<Ban>));
+}
+
+void Client::searchBans(Snowflake guildId, const QString &text, const QList<Snowflake> &userIds, ResultCallback<QList<Ban>> callback)
+{
+    QUrlQuery query;
+    query.addQueryItem("limit", "10");
+    for (Snowflake userId : userIds)
+        query.addQueryItem("user_ids", QString::number(userId));
+    if (!text.trimmed().isEmpty())
+        query.addQueryItem("query", text);
+    httpClient->get(guildEndpoint(guildId, "/bans/search"), query, valueHandler<QList<Ban>>("Searching bans", std::move(callback), parseArray<Ban>));
+}
+
+void Client::fetchGuildInvites(Snowflake guildId, ResultCallback<QList<Invite>> callback)
+{
+    httpClient->get(guildEndpoint(guildId, "/invites"), {}, valueHandler<QList<Invite>>("Fetching invites", std::move(callback), parseArray<Invite>));
+}
+
+void Client::createInvite(Snowflake channelId, int maxAgeSeconds, int maxUses, bool temporary, ResultCallback<Invite> callback)
+{
+    Core::OrderedJson body;
+    body.insert("max_age", maxAgeSeconds);
+    body.insert("max_uses", maxUses);
+    body.insert("temporary", temporary);
+    body.insert("flags", 0);
+
+    RequestOptions options;
+    options.context = ContextProperties::location("Settings Invite");
+    QPointer<Client> self(this);
+    auto announced = [self, callback = std::move(callback)](const Core::Result<Invite> &result) {
+        if (self && result.success())
+            emit self->inviteCreated(*result.value);
+        if (callback)
+            callback(result);
+    };
+    httpClient->send(HttpClient::Method::POST, "/channels/" + QString::number(channelId) + "/invites",
+                     body.toBytes(), options,
+                     valueHandler<Invite>("Creating an invite", std::move(announced),
+                                          [](const QJsonDocument &doc) { return Invite::fromJson(doc.object()); }));
+}
+
+void Client::revokeInvite(const QString &code, ActionCallback callback)
+{
+    QPointer<Client> self(this);
+    auto announced = [self, code, callback = std::move(callback)](const Core::Result<void> &result) {
+        if (self && (result.success() || result.code == ApiError::UnknownInvite))
+            emit self->inviteRevoked(code);
+        if (callback)
+            callback(result);
+    };
+    httpClient->delete_("/invites/" + QString::fromLatin1(QUrl::toPercentEncoding(code)), actionHandler("Revoking an invite", std::move(announced)));
+}
+
+void Client::setIncidentActions(Snowflake guildId, const QDateTime &invitesDisabledUntil,
+                                const QDateTime &dmsDisabledUntil, std::optional<int> lockdownHours,
+                                ActionCallback callback)
+{
+    Core::OrderedJson body;
+    body.insert("invites_disabled_until", invitesDisabledUntil.isValid() ? QJsonValue(isoTimestamp(invitesDisabledUntil)) : QJsonValue());
+    body.insert("dms_disabled_until", dmsDisabledUntil.isValid() ? QJsonValue(isoTimestamp(dmsDisabledUntil)) : QJsonValue());
+    body.insert("lockdown_duration_hours", lockdownHours ? QJsonValue(*lockdownHours) : QJsonValue());
+    httpClient->put(guildEndpoint(guildId, "/incident-actions"), body, actionHandler("Updating invite and DM pauses", std::move(callback)));
+}
+
+void Client::fetchGuildEmojis(Snowflake guildId, ResultCallback<QList<Emoji>> callback)
+{
+    httpClient->get(guildEndpoint(guildId, "/emojis"), {}, valueHandler<QList<Emoji>>("Fetching emojis", std::move(callback), parseArray<Emoji>));
+}
+
+void Client::createGuildEmoji(Snowflake guildId, const QString &name, const QString &imageDataUri,
+                              const QByteArray &originalMd5, ResultCallback<Emoji> callback)
+{
+    Core::OrderedJson body;
+    body.insert("image", imageDataUri);
+    body.insert("name", name);
+
+    RequestOptions options;
+    options.context = ContextProperties().add("client_event_source", "Guild Settings");
+    options.originalMd5 = originalMd5;
+    httpClient->send(HttpClient::Method::POST, guildEndpoint(guildId, "/emojis"), body.toBytes(), options,
+                     valueHandler<Emoji>("Uploading an emoji", std::move(callback),
+                                         [](const QJsonDocument &doc) { return Emoji::fromJson(doc.object()); }));
+}
+
+void Client::renameGuildEmoji(Snowflake guildId, Snowflake emojiId, const QString &name, ActionCallback callback)
+{
+    Core::OrderedJson body;
+    body.insert("name", name);
+    httpClient->patch(guildEndpoint(guildId, "/emojis/" + QString::number(emojiId)), body, actionHandler("Renaming an emoji", std::move(callback)));
+}
+
+void Client::deleteGuildEmoji(Snowflake guildId, Snowflake emojiId, ActionCallback callback)
+{
+    httpClient->delete_(guildEndpoint(guildId, "/emojis/" + QString::number(emojiId)), actionHandler("Deleting an emoji", std::move(callback)));
+}
+
+void Client::fetchGuildStickers(Snowflake guildId, ResultCallback<QList<Sticker>> callback)
+{
+    httpClient->get(guildEndpoint(guildId, "/stickers"), {}, valueHandler<QList<Sticker>>("Fetching stickers", std::move(callback), parseArray<Sticker>));
+}
+
+void Client::createGuildSticker(Snowflake guildId, const QString &name, const QString &tags, const QString &description,
+                                const FileUpload &file, const QByteArray &originalMd5, ResultCallback<Sticker> callback)
+{
+    FileUpload part = file;
+    part.fieldName = "file";
+
+    RequestOptions options;
+    options.originalMd5 = originalMd5;
+    httpClient->postForm(guildEndpoint(guildId, "/stickers"),
+                         { { "name", name }, { "tags", tags }, { "description", description } }, { part }, options,
+                         valueHandler<Sticker>("Uploading a sticker", std::move(callback),
+                                               [](const QJsonDocument &doc) { return Sticker::fromJson(doc.object()); }));
+}
+
+void Client::modifyGuildSticker(Snowflake guildId, Snowflake stickerId, const QString &name, const QString &tags,
+                                const QString &description, ActionCallback callback)
+{
+    Core::OrderedJson body;
+    body.insert("name", name);
+    body.insert("tags", tags);
+    body.insert("description", description);
+    httpClient->patch(guildEndpoint(guildId, "/stickers/" + QString::number(stickerId)), body, actionHandler("Editing a sticker", std::move(callback)));
+}
+
+void Client::deleteGuildSticker(Snowflake guildId, Snowflake stickerId, ActionCallback callback)
+{
+    httpClient->delete_(guildEndpoint(guildId, "/stickers/" + QString::number(stickerId)), actionHandler("Deleting a sticker", std::move(callback)));
+}
+
+void Client::fetchAuditLog(Snowflake guildId, const AuditLogQuery &auditQuery, ResultCallback<AuditLog> callback)
+{
+    QUrlQuery query;
+    query.addQueryItem("limit", QString::number(AuditLogQuery::PageSize));
+    if (auditQuery.before.isValid())
+        query.addQueryItem("before", QString::number(auditQuery.before));
+    if (auditQuery.userId.isValid())
+        query.addQueryItem("user_id", QString::number(auditQuery.userId));
+    if (auditQuery.actionType)
+        query.addQueryItem("action_type", QString::number(static_cast<int>(*auditQuery.actionType)));
+    httpClient->get(guildEndpoint(guildId, "/audit-logs"), query,
+                    valueHandler<AuditLog>("Fetching the audit log", std::move(callback),
+                                           [](const QJsonDocument &doc) { return AuditLog::fromJson(doc.object()); }));
 }
 
 void Client::setState(Core::ConnectionState state)

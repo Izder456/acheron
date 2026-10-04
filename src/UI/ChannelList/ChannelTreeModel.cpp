@@ -1052,6 +1052,35 @@ void ChannelTreeModel::addGuild(const Discord::GatewayGuild &guild, Snowflake ac
     placeGuildNode(accNode, guildId, std::move(guildNode), instance);
 }
 
+void ChannelTreeModel::updateGuild(const Discord::Guild &guild, Snowflake accountId)
+{
+    ChannelNode *accNode = accountNodes.value(accountId, nullptr);
+    if (!accNode)
+        return;
+
+    ChannelNode *node = findGuildNodeById(guild.id.get(), accNode);
+    if (!node)
+        return;
+
+    const Snowflake previousRulesChannel = node->rulesChannelId;
+    node->name = guild.name;
+    node->TEMP_iconHash = guild.icon;
+    node->ownerId = guild.ownerId;
+    node->rulesChannelId = guild.rulesChannelId.hasValue() ? guild.rulesChannelId.get() : Snowflake();
+
+    QModelIndex idx = indexForNode(node);
+    if (idx.isValid())
+        emit dataChanged(idx, idx);
+
+    if (previousRulesChannel == node->rulesChannelId)
+        return;
+    for (Snowflake channelId : { previousRulesChannel, node->rulesChannelId }) {
+        const QModelIndex channelIndex = indexForNode(findChannelTreeNode(channelId, node));
+        if (channelIndex.isValid())
+            emit dataChanged(channelIndex, channelIndex);
+    }
+}
+
 void ChannelTreeModel::removeGuild(Snowflake accountId, Snowflake guildId)
 {
     ChannelNode *accNode = accountNodes.value(accountId, nullptr);

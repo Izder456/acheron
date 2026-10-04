@@ -17,6 +17,7 @@ class QSqlDatabase;
 #include "MemberListManager.hpp"
 #include "Presence/PresenceManager.hpp"
 #include "RelationshipManager.hpp"
+#include "RoleHierarchy.hpp"
 #include "UserManager.hpp"
 #include "PermissionManager.hpp"
 #include "Storage/AccountRepository.hpp"
@@ -63,12 +64,17 @@ public:
     [[nodiscard]] QList<Discord::Role> getMemberRolesSorted(Snowflake guildId, Snowflake userId);
     [[nodiscard]] std::optional<Discord::Guild> getGuild(Snowflake guildId);
     [[nodiscard]] std::optional<Discord::Channel> getChannel(Snowflake channelId);
+    [[nodiscard]] QList<Discord::Channel> getGuildChannels(Snowflake guildId);
     [[nodiscard]] std::optional<Snowflake> findDmChannelWithUser(Snowflake userId);
     using DmChannelCallback = std::function<void(const Result<Snowflake> &)>;
     void openDmChannel(Snowflake userId, DmChannelCallback callback);
     [[nodiscard]] int getChannelRateLimit(Snowflake channelId);
 
     [[nodiscard]] bool isThreadJoined(Snowflake threadId) const;
+
+    [[nodiscard]] QList<Discord::Ban> observedBans(Snowflake guildId) const;
+    [[nodiscard]] QList<Discord::Invite> createdInvites(Snowflake guildId) const;
+    [[nodiscard]] std::optional<RoleHierarchy> selfRoleHierarchy(Snowflake guildId);
 
     void markGuildsAsRead(const QList<Snowflake> &guildIds);
     void markCategoryAsRead(Snowflake guildId, Snowflake categoryId);
@@ -97,6 +103,7 @@ signals:
 
     void ready(const Discord::Ready &ready);
     void guildCreated(const Discord::GatewayGuild &guild);
+    void guildUpdated(const Discord::Guild &guild);
     void guildRemoved(Snowflake guildId);
     void channelCreated(const Discord::ChannelCreate &event);
     void channelUpdated(const Discord::ChannelUpdate &update);
@@ -110,6 +117,7 @@ signals:
     void guildRoleUpdated(const Discord::GuildRoleUpdate &event);
     void guildRoleDeleted(const Discord::GuildRoleDelete &event);
     void membersUpdated(Snowflake guildId, const QList<Snowflake> &userIds);
+    void memberRemoved(Snowflake guildId, Snowflake userId);
     void readStateChanged(Snowflake channelId);
     void forumBadgeChanged(Snowflake forumId);
     void forumJoinedPostsChanged(Snowflake forumId);
@@ -120,6 +128,7 @@ signals:
 
 private slots:
     void onGuildCreated(const Discord::GatewayGuild &guild);
+    void onGuildUpdated(const Discord::Guild &guild);
     void onGuildDeleted(const Discord::GuildDelete &event);
     void onChannelCreated(const Discord::ChannelCreate &event);
     void onChannelUpdated(const Discord::ChannelUpdate &event);
@@ -134,8 +143,14 @@ private slots:
     void onGuildRoleUpdated(const Discord::GuildRoleUpdate &event);
     void onGuildRoleDeleted(const Discord::GuildRoleDelete &event);
     void onGuildMembersChunk(const Discord::GuildMembersChunk &chunk);
+    void onGuildMemberAdded(const Discord::GuildMemberAdd &event);
     void onGuildMemberUpdate(const Discord::GuildMemberUpdate &event);
+    void onGuildMemberRemoved(const Discord::GuildMemberRemove &event);
     void onGuildMemberListUpdate(const Discord::GuildMemberListUpdate &update);
+    void onGuildBanAdded(const Discord::GuildBanEvent &event);
+    void onGuildBanRemoved(const Discord::GuildBanEvent &event);
+    void onInviteCreated(const Discord::Invite &invite);
+    void onInviteRevoked(const QString &code);
     void onMessagesReceived(const MessageRequestResult &result);
     void onMessageCreated(const Discord::Message &msg);
     void handleAckRequest(Snowflake channelId, Snowflake messageId);
@@ -193,6 +208,9 @@ private:
     QSet<Snowflake> joinedThreads;
     QHash<Snowflake, Discord::Channel> threadCache;
     QHash<Snowflake, bool> forumParentCache;
+
+    QHash<Snowflake, QList<Discord::Ban>> observedBansByGuild;
+    QHash<Snowflake, QList<Discord::Invite>> createdInvitesByGuild;
 
     QList<Discord::Client::AckEntry> queuedBulkAcks;
     bool bulkAckInFlight = false;

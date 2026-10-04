@@ -71,6 +71,29 @@ inline QUrl guildIcon(Core::Snowflake guildId, const QString &hash, int size = 6
                              QString::number(size)));
 }
 
+inline QUrl guildBanner(Core::Snowflake guildId, const QString &hash, int size = 480)
+{
+    if (hash.isEmpty())
+        return {};
+    return QUrl(QStringLiteral("https://cdn.discordapp.com/banners/%1/%2.%3?size=%4")
+                        .arg(QString::number(quint64(guildId)), hash, assetExtension(hash),
+                             QString::number(size)));
+}
+
+inline QUrl guildSplash(Core::Snowflake guildId, const QString &hash, int size = 480)
+{
+    if (hash.isEmpty())
+        return {};
+    return QUrl(QStringLiteral("https://cdn.discordapp.com/splashes/%1/%2.png?size=%3").arg(QString::number(quint64(guildId)), hash, QString::number(size)));
+}
+
+inline QUrl roleIcon(Core::Snowflake roleId, const QString &hash, int size = 64)
+{
+    if (hash.isEmpty())
+        return {};
+    return QUrl(QStringLiteral("https://cdn.discordapp.com/role-icons/%1/%2.png?size=%3").arg(QString::number(quint64(roleId)), hash, QString::number(size)));
+}
+
 inline QUrl applicationIcon(Core::Snowflake applicationId, const QString &hash, int size = 128)
 {
     if (hash.isEmpty())

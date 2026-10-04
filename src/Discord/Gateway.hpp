@@ -42,7 +42,9 @@ public:
     [[nodiscard]] bool isRunning() const { return running; }
 
     void subscribeToGuild(Core::Snowflake guildId, Core::Snowflake channelId, const QList<QPair<int, int>> &ranges);
-    void requestGuildMembers(Core::Snowflake guildId, const QList<Core::Snowflake> &userIds);
+    void setMemberUpdatesSubscription(Core::Snowflake guildId, bool subscribed);
+    void requestGuildMembers(Core::Snowflake guildId, const QList<Core::Snowflake> &userIds, bool presences = true);
+    void queryGuildMembers(Core::Snowflake guildId, const QString &query, int limit, bool presences);
     void requestForumUnreads(Core::Snowflake guildId, Core::Snowflake forumId,
                              const QList<QPair<Core::Snowflake, Core::Snowflake>> &threads);
     void sendVoiceStateUpdate(Core::Snowflake guildId, Core::Snowflake channelId, bool selfMute, bool selfDeaf);
@@ -80,13 +82,20 @@ signals:
     void gatewayThreadMembersUpdate(const ThreadMembersUpdate &data);
     void gatewayForumUnreads(const ForumUnreads &data);
     void gatewayGuildCreate(const GatewayGuild &data);
+    void gatewayGuildUpdate(const Guild &data);
     void gatewayGuildDelete(const GuildDelete &data);
     void gatewayGuildMembersChunk(const GuildMembersChunk &data);
+    void gatewayGuildMemberAdd(const GuildMemberAdd &data);
     void gatewayGuildMemberUpdate(const GuildMemberUpdate &data);
+    void gatewayGuildMemberRemove(const GuildMemberRemove &data);
     void gatewayGuildRoleCreate(const GuildRoleCreate &data);
     void gatewayGuildRoleUpdate(const GuildRoleUpdate &data);
     void gatewayGuildRoleDelete(const GuildRoleDelete &data);
     void gatewayGuildEmojisUpdate(const GuildEmojisUpdate &data);
+    void gatewayGuildStickersUpdate(const GuildStickersUpdate &data);
+    void gatewayGuildBanAdd(const GuildBanEvent &data);
+    void gatewayGuildBanRemove(const GuildBanEvent &data);
+    void gatewayGuildPruneUpdate(const GuildPruneUpdate &data);
     void gatewayMessageAck(const MessageAck &data);
     void gatewayMessageReactionAdd(const MessageReactionAdd &data);
     void gatewayMessageReactionAddMany(const MessageReactionAddMany &data);
@@ -131,13 +140,20 @@ private:
     void handleThreadMembersUpdate(const Inbound &data);
     void handleForumUnreads(const Inbound &data);
     void handleGuildCreate(const Inbound &data);
+    void handleGuildUpdate(const Inbound &data);
     void handleGuildDelete(const Inbound &data);
     void handleGuildMembersChunk(const Inbound &data);
+    void handleGuildMemberAdd(const Inbound &data);
     void handleGuildMemberUpdate(const Inbound &data);
+    void handleGuildMemberRemove(const Inbound &data);
     void handleGuildRoleCreate(const Inbound &data);
     void handleGuildRoleUpdate(const Inbound &data);
     void handleGuildRoleDelete(const Inbound &data);
     void handleGuildEmojisUpdate(const Inbound &data);
+    void handleGuildStickersUpdate(const Inbound &data);
+    void handleGuildBanAdd(const Inbound &data);
+    void handleGuildBanRemove(const Inbound &data);
+    void handleGuildPruneUpdate(const Inbound &data);
     void handleMessageAck(const Inbound &data);
     void handleMessageReactionAdd(const Inbound &data);
     void handleMessageReactionAddMany(const Inbound &data);

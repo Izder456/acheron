@@ -21,6 +21,7 @@ inline constexpr auto Bell = "bell";
 inline constexpr auto BookCheck = "book-check";
 inline constexpr auto Bot = "bot";
 inline constexpr auto ChartColumn = "chart-column";
+inline constexpr auto ChevronDown = "chevron-down";
 inline constexpr auto ChevronRight = "chevron-right";
 inline constexpr auto Compass = "compass";
 inline constexpr auto Ellipsis = "ellipsis";

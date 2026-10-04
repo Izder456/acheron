@@ -94,9 +94,10 @@ struct GuildSubscriptionsBulkData : Core::JsonUtils::JsonObject
 {
     struct SubscriptionData : Core::JsonUtils::JsonObject
     {
-        Field<bool> typing;
-        Field<bool> activities;
-        Field<bool> threads;
+        Field<bool, true> typing;
+        Field<bool, true> activities;
+        Field<bool, true> threads;
+        Field<bool, true> memberUpdates;
         // channel_id -> list of [start, end] range pairs for member list subscriptions
         QMap<Core::Snowflake, QList<QPair<int, int>>> channels;
 
@@ -106,6 +107,7 @@ struct GuildSubscriptionsBulkData : Core::JsonUtils::JsonObject
             insert(obj, "typing", typing);
             insert(obj, "activities", activities);
             insert(obj, "threads", threads);
+            insert(obj, "member_updates", memberUpdates);
 
             if (!channels.isEmpty()) {
                 Core::OrderedJson channelsObj;
@@ -165,13 +167,17 @@ using RequestForumUnreads = Outbound<OpCode::REQUEST_FORUM_UNREADS, RequestForum
 struct RequestGuildMembersData : Core::JsonUtils::JsonObject
 {
     Field<Core::Snowflake> guildId;
+    Field<QString, true> query;
+    Field<int, true> limit;
     Field<QList<Core::Snowflake>, true> userIds;
     Field<bool, true> presences;
 
     Core::OrderedJson toJson() const
     {
         Core::OrderedJson obj;
-        insert(obj, "guild_id", guildId);
+        obj.insert("guild_id", Core::OrderedJson::Array().append(QString::number(guildId.get())));
+        insert(obj, "query", query);
+        insert(obj, "limit", limit);
         insert(obj, "user_ids", userIds);
         insert(obj, "presences", presences);
         return obj;
