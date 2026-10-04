@@ -536,7 +536,8 @@ void VoiceWindow::buildAdvancedSection(QVBoxLayout *parentLayout)
     connect(advancedToggle, &QToolButton::toggled, this, [this](bool checked) {
         advancedToggle->setArrowType(checked ? Qt::DownArrow : Qt::RightArrow);
         advancedContainer->setVisible(checked);
-        adjustSize();
+        if (!isMaximized() && !isFullScreen())
+            adjustSize();
     });
 
     connect(applicationCombo, qOverload<int>(&QComboBox::currentIndexChanged), this, [this](int index) {
