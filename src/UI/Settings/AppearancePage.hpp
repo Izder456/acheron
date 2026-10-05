@@ -25,6 +25,7 @@ public:
 
 signals:
     void channelListModeChanged(bool classic);
+    void channelListIndentChanged();
 
 private:
     void rebuildSwatches();

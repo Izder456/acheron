@@ -4,6 +4,7 @@
 #include "Core/Theme/Generator.hpp"
 #include "Core/Theme/Manager.hpp"
 #include "Core/Theme/Tokens.hpp"
+#include "UI/ChannelList/ChannelIndent.hpp"
 
 #include <QCheckBox>
 #include <QColorDialog>
@@ -15,6 +16,7 @@
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QMenu>
 #include <QPushButton>
 #include <QRandomGenerator>
 #include <QScrollArea>
@@ -25,6 +27,7 @@
 #include <QVBoxLayout>
 
 #include <algorithm>
+#include <utility>
 
 namespace Acheron {
 namespace UI {
@@ -97,12 +100,53 @@ AppearancePage::AppearancePage(QWidget *parent)
     channelListCombo->addItem(tr("Classic")); // 1
     channelListCombo->setCurrentIndex(QSettings().value("ui/channelListMode").toString() == "classic" ? 1 : 0);
     layoutGroupLayout->addWidget(channelListCombo, 1);
+
+    auto *indentCheck = new QCheckBox(tr("Indent nested items"), layoutGroup);
+    indentCheck->setChecked(ChannelIndent::enabled());
+    layoutGroupLayout->addWidget(indentCheck);
+
+    auto *indentScopeButton = new QToolButton(layoutGroup);
+    indentScopeButton->setText(tr("Inside"));
+    indentScopeButton->setPopupMode(QToolButton::InstantPopup);
+    auto *indentScopeMenu = new QMenu(indentScopeButton);
+    const std::pair<ChannelIndent::Scope, QString> indentScopeLabels[] = {
+        { ChannelIndent::Scope::Accounts, tr("Accounts") },
+        { ChannelIndent::Scope::Folders, tr("Folders and Direct Messages") },
+        { ChannelIndent::Scope::Servers, tr("Servers") },
+        { ChannelIndent::Scope::Categories, tr("Categories") },
+        { ChannelIndent::Scope::Channels, tr("Channels") },
+    };
+    for (const auto &[scope, label] : indentScopeLabels) {
+        QAction *action = indentScopeMenu->addAction(label);
+        action->setCheckable(true);
+        action->setChecked(ChannelIndent::scopes().testFlag(scope));
+        connect(action, &QAction::toggled, this, [this, scope](bool checked) {
+            ChannelIndent::setScopes(ChannelIndent::scopes().setFlag(scope, checked));
+            emit channelListIndentChanged();
+        });
+    }
+    indentScopeButton->setMenu(indentScopeMenu);
+    layoutGroupLayout->addWidget(indentScopeButton);
     outer->addWidget(layoutGroup);
 
+    auto updateIndentControls = [channelListCombo, indentCheck, indentScopeButton]() {
+        const bool treeMode = channelListCombo->currentIndex() == 0;
+        indentCheck->setEnabled(treeMode);
+        indentScopeButton->setEnabled(treeMode && indentCheck->isChecked());
+    };
+    updateIndentControls();
+
+    connect(indentCheck, &QCheckBox::toggled, this, [this, updateIndentControls](bool checked) {
+        ChannelIndent::setEnabled(checked);
+        updateIndentControls();
+        emit channelListIndentChanged();
+    });
+
     connect(channelListCombo, qOverload<int>(&QComboBox::currentIndexChanged), this,
-            [this](int index) {
+            [this, updateIndentControls](int index) {
                 bool classic = index == 1;
                 QSettings().setValue("ui/channelListMode", classic ? "classic" : "tree");
+                updateIndentControls();
                 emit channelListModeChanged(classic);
             });
 

@@ -43,6 +43,7 @@ void SettingsWindow::setupUi()
     auto *appearance = new AppearancePage(this);
     addPage(tr("Appearance"), appearance);
     connect(appearance, &AppearancePage::channelListModeChanged, this, &SettingsWindow::channelListModeChanged);
+    connect(appearance, &AppearancePage::channelListIndentChanged, this, &SettingsWindow::channelListIndentChanged);
 
 #ifdef ACHERON_HAVE_MINIAUDIO
     addPage(tr("Audio"), new AudioPage(this));

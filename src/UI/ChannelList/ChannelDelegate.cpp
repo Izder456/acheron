@@ -15,6 +15,36 @@ ChannelDelegate::ChannelDelegate(QAbstractProxyModel *proxyModel, QObject *paren
 {
 }
 
+static ChannelIndent::Scopes indentScopeOfChildren(ChannelNode::Type parentType)
+{
+    switch (parentType) {
+    case ChannelNode::Type::Account:
+        return ChannelIndent::Scope::Accounts;
+    case ChannelNode::Type::Folder:
+    case ChannelNode::Type::DMHeader:
+        return ChannelIndent::Scope::Folders;
+    case ChannelNode::Type::Server:
+        return ChannelIndent::Scope::Servers;
+    case ChannelNode::Type::Category:
+        return ChannelIndent::Scope::Categories;
+    case ChannelNode::Type::Channel:
+    case ChannelNode::Type::Forum:
+    case ChannelNode::Type::VoiceChannel:
+        return ChannelIndent::Scope::Channels;
+    default:
+        return {};
+    }
+}
+
+static int indentWidth(const ChannelNode *node, ChannelIndent::Scopes scopes)
+{
+    int steps = 0;
+    for (const ChannelNode *parent = node->parent; parent; parent = parent->parent)
+        if (scopes & indentScopeOfChildren(parent->type))
+            steps++;
+    return steps * ChannelIndent::StepWidth;
+}
+
 static void drawBranchIndicator(QPainter *painter, const QStyleOptionViewItem &option, bool expanded)
 {
     int indicatorWidth = 20;
@@ -372,7 +402,7 @@ void ChannelDelegate::paint(QPainter *painter, const QStyleOptionViewItem &optio
 
     // content rect is shifted right to leave room for the unread pill
     QStyleOptionViewItem contentOpt = option;
-    contentOpt.rect = option.rect.adjusted(pillMargin, 0, 0, 0);
+    contentOpt.rect = option.rect.adjusted(pillMargin + indentWidth(node, indentScopes), 0, 0, 0);
 
     if (node->type == ChannelNode::Type::Account) {
         QRect textRect = contentOpt.rect.adjusted(iconSize, 0, -iconSize, 0);
@@ -604,6 +634,11 @@ void ChannelDelegate::paint(QPainter *painter, const QStyleOptionViewItem &optio
         drawMentionBadge(painter, contentOpt, node->mentionCount);
 
     painter->restore();
+}
+
+void ChannelDelegate::setIndentScopes(ChannelIndent::Scopes scopes)
+{
+    indentScopes = scopes;
 }
 
 QSize ChannelDelegate::sizeHint(const QStyleOptionViewItem &option, const QModelIndex &index) const

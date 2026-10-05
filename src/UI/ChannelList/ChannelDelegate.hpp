@@ -2,6 +2,8 @@
 
 #include <QtWidgets>
 
+#include "ChannelIndent.hpp"
+
 class QAbstractProxyModel;
 
 namespace Acheron {
@@ -16,8 +18,11 @@ public:
                const QModelIndex &index) const override;
     QSize sizeHint(const QStyleOptionViewItem &option, const QModelIndex &index) const override;
 
+    void setIndentScopes(ChannelIndent::Scopes scopes);
+
 private:
     QAbstractProxyModel *proxyModel;
+    ChannelIndent::Scopes indentScopes;
 };
 } // namespace UI
 } // namespace Acheron

@@ -35,6 +35,7 @@ class ChannelFilterProxyModel;
 class AccountsWindow;
 class AccountsModel;
 class SettingsWindow;
+class ChannelDelegate;
 class ChannelTreeView;
 class ServerRailView;
 class ServerRailModel;
@@ -104,6 +105,7 @@ public:
         Classic
     };
     void setChannelListMode(ChannelListMode mode);
+    void applyChannelIndent();
 
 private:
     QWidget *buildLeftSide();
@@ -165,6 +167,7 @@ private:
     Core::Snowflake currentForumGuildId;
 
     ChannelTreeView *channelTree;
+    ChannelDelegate *channelDelegate = nullptr;
     ChannelTreeModel *channelTreeModel;
     ChannelFilterProxyModel *channelFilterProxy;
 

@@ -1235,7 +1235,9 @@ void MainWindow::setupUi()
     channelTree->setModel(channelFilterProxy);
     channelTree->setHeaderHidden(true);
     channelTree->setIndentation(0);
-    channelTree->setItemDelegate(new ChannelDelegate(channelFilterProxy, channelTree));
+    channelDelegate = new ChannelDelegate(channelFilterProxy, channelTree);
+    channelTree->setItemDelegate(channelDelegate);
+    applyChannelIndent();
     channelTree->setIconSize(QSize(24, 24));
     channelTree->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     channelTree->setFrameShape(QFrame::NoFrame);
@@ -1597,12 +1599,19 @@ QWidget *MainWindow::buildLeftSide()
     return container;
 }
 
+void MainWindow::applyChannelIndent()
+{
+    channelDelegate->setIndentScopes(channelListMode == ChannelListMode::Tree ? ChannelIndent::activeScopes() : ChannelIndent::Scopes());
+    channelTree->viewport()->update();
+}
+
 void MainWindow::setChannelListMode(ChannelListMode mode)
 {
     if (channelListMode == mode)
         return;
     channelListMode = mode;
     QSettings().setValue("ui/channelListMode", mode == ChannelListMode::Classic ? "classic" : "tree");
+    applyChannelIndent();
 
     QList<int> splitterSizes = mainSplitter ? mainSplitter->sizes() : QList<int>();
 #ifndef ACHERON_NO_VOICE
@@ -2395,6 +2404,7 @@ void MainWindow::openSettingsWindow()
         connect(settingsWindow, &SettingsWindow::channelListModeChanged, this, [this](bool classic) {
             setChannelListMode(classic ? ChannelListMode::Classic : ChannelListMode::Tree);
         });
+        connect(settingsWindow, &SettingsWindow::channelListIndentChanged, this, &MainWindow::applyChannelIndent);
         connect(settingsWindow, &SettingsWindow::animateEmojiChanged, this, [this](bool enabled) {
             chatView->frameAnimator()->setEmojiEnabled(enabled);
         });
