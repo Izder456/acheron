@@ -5,6 +5,7 @@
 #include "Core/Theme/Manager.hpp"
 #include "Core/Theme/Tokens.hpp"
 
+#include <QCheckBox>
 #include <QColorDialog>
 #include <QComboBox>
 #include <QFileDialog>
@@ -51,34 +52,42 @@ AppearancePage::AppearancePage(QWidget *parent)
 
     seedColor = Manager::instance().color(Token::Highlight);
 
-    auto *genGroup = new QGroupBox(tr("Generate from a color"), this);
-    auto *genLayout = new QHBoxLayout(genGroup);
+    auto *systemColors = new QCheckBox(tr("Use system colors"), this);
+    systemColors->setChecked(Manager::instance().usesSystemColors());
+    outer->addWidget(systemColors);
 
-    genLayout->addWidget(new QLabel(tr("Base:"), genGroup));
+    systemStyle = new QCheckBox(tr("Use system widget style (applies after restart)"), this);
+    systemStyle->setChecked(Manager::systemStyleEnabled());
+    outer->addWidget(systemStyle);
 
-    seedSwatch = new QPushButton(genGroup);
+    generatorGroup = new QGroupBox(tr("Generate from a color"), this);
+    auto *genLayout = new QHBoxLayout(generatorGroup);
+
+    genLayout->addWidget(new QLabel(tr("Base:"), generatorGroup));
+
+    seedSwatch = new QPushButton(generatorGroup);
     seedSwatch->setFixedSize(48, 22);
     seedSwatch->setCursor(Qt::PointingHandCursor);
     seedSwatch->setStyleSheet(swatchStyle(seedColor));
     genLayout->addWidget(seedSwatch);
 
-    auto *schemeCombo = new QComboBox(genGroup);
+    auto *schemeCombo = new QComboBox(generatorGroup);
     for (int i = 0; i < Core::Theme::schemeCount; ++i)
         schemeCombo->addItem(Core::Theme::schemeName(static_cast<Core::Theme::Scheme>(i)));
     genLayout->addWidget(schemeCombo);
 
-    auto *modeCombo = new QComboBox(genGroup);
+    auto *modeCombo = new QComboBox(generatorGroup);
     modeCombo->addItem(tr("Dark"));
     modeCombo->addItem(tr("Light"));
     genLayout->addWidget(modeCombo);
 
-    auto *genBtn = new QPushButton(tr("Generate"), genGroup);
-    auto *randBtn = new QPushButton(tr("Randomize"), genGroup);
+    auto *genBtn = new QPushButton(tr("Generate"), generatorGroup);
+    auto *randBtn = new QPushButton(tr("Randomize"), generatorGroup);
     genLayout->addWidget(genBtn);
     genLayout->addWidget(randBtn);
     genLayout->addStretch(1);
 
-    outer->addWidget(genGroup);
+    outer->addWidget(generatorGroup);
 
     auto *layoutGroup = new QGroupBox(tr("Channel list"), this);
     auto *layoutGroupLayout = new QHBoxLayout(layoutGroup);
@@ -220,9 +229,10 @@ AppearancePage::AppearancePage(QWidget *parent)
         const bool supportsAlpha = d.supportsAlpha;
         const QString title = QString::fromUtf8(d.label);
         swatches.insert(token, swatch);
+        colorResets.insert(token, reset);
 
         connect(swatch, &QPushButton::clicked, this,
-                [this, token, supportsAlpha, title, swatch]() {
+                [this, token, supportsAlpha, title]() {
                     QColorDialog::ColorDialogOptions opts;
                     if (supportsAlpha)
                         opts |= QColorDialog::ShowAlphaChannel;
@@ -232,14 +242,12 @@ AppearancePage::AppearancePage(QWidget *parent)
                     Manager::instance().setOverride(token, picked);
                     Manager::instance().apply();
                     Manager::instance().save();
-                    swatch->setStyleSheet(swatchStyle(picked));
                 });
 
-        connect(reset, &QToolButton::clicked, this, [this, token, swatch]() {
+        connect(reset, &QToolButton::clicked, this, [token]() {
             Manager::instance().clearOverride(token);
             Manager::instance().apply();
             Manager::instance().save();
-            swatch->setStyleSheet(swatchStyle(Manager::instance().color(token)));
         });
     }
 
@@ -257,12 +265,20 @@ AppearancePage::AppearancePage(QWidget *parent)
     actions->addWidget(importBtn);
     outer->addLayout(actions);
 
+    connect(systemColors, &QCheckBox::toggled, this, [this](bool checked) {
+        Manager::instance().setUseSystemColors(checked);
+        Manager::instance().apply();
+        updateColorEditors();
+    });
+    connect(systemStyle, &QCheckBox::toggled, this, &Manager::setSystemStyleEnabled);
+    connect(&Manager::instance(), &Manager::themeChanged, this, &AppearancePage::rebuildSwatches);
+    updateColorEditors();
+
     connect(resetAll, &QPushButton::clicked, this, [this]() {
         Manager::instance().resetAll();
         Manager::instance().apply();
         Manager::instance().applyFonts();
         Manager::instance().save();
-        rebuildSwatches();
         refreshFontControls();
     });
 
@@ -282,7 +298,6 @@ AppearancePage::AppearancePage(QWidget *parent)
             Manager::instance().apply();
             Manager::instance().applyFonts();
             Manager::instance().save();
-            rebuildSwatches();
             refreshFontControls();
         }
     });
@@ -293,6 +308,18 @@ void AppearancePage::rebuildSwatches()
     for (auto it = swatches.begin(); it != swatches.end(); ++it) {
         const Token token = it.key();
         it.value()->setStyleSheet(swatchStyle(Manager::instance().color(token)));
+    }
+}
+
+void AppearancePage::updateColorEditors()
+{
+    generatorGroup->setEnabled(!Manager::instance().usesSystemColors());
+    systemStyle->setEnabled(Manager::instance().usesSystemColors());
+    for (auto it = swatches.begin(); it != swatches.end(); ++it) {
+        const bool editable = !Manager::instance().isSystemControlled(it.key());
+        it.value()->setEnabled(editable);
+        if (QToolButton *reset = colorResets.value(it.key()))
+            reset->setEnabled(editable);
     }
 }
 
@@ -318,7 +345,6 @@ void AppearancePage::generateInto(const QColor &seed, int schemeIndex, bool dark
     Manager::instance().setOverrides(Core::Theme::generate(seed, scheme, dark));
     Manager::instance().apply();
     Manager::instance().save();
-    rebuildSwatches();
 }
 
 } // namespace UI

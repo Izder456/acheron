@@ -5,15 +5,23 @@
 
 #include <QApplication>
 #include <QDir>
+#include <QEvent>
 #include <QFile>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QScopedValueRollback>
+#include <QSettings>
 #include <QStandardPaths>
 #include <QStyle>
 
 namespace Acheron {
 namespace Core {
 namespace Theme {
+
+namespace {
+constexpr const char *UseSystemColorsKey = "appearance/use_system_colors";
+constexpr const char *UseSystemStyleKey = "appearance/use_system_style";
+} // namespace
 
 Manager &Manager::instance()
 {
@@ -22,6 +30,14 @@ Manager &Manager::instance()
 }
 
 QColor Manager::color(Token token) const
+{
+    if (systemColors)
+        if (const auto system = systemColor(token))
+            return *system;
+    return customColor(token);
+}
+
+QColor Manager::customColor(Token token) const
 {
     auto it = overrides.constFind(token);
     if (it != overrides.constEnd())
@@ -64,6 +80,64 @@ void Manager::setOverrides(const QHash<Token, QColor> &overrides)
     this->overrides = overrides;
 }
 
+bool Manager::usesSystemColors() const
+{
+    return systemColors;
+}
+
+void Manager::setUseSystemColors(bool enabled)
+{
+    systemColors = enabled;
+    QSettings().setValue(UseSystemColorsKey, enabled);
+}
+
+bool Manager::isSystemControlled(Token token) const
+{
+    return systemColors && (descriptor(token).role.has_value() || token == Token::DisabledText);
+}
+
+bool Manager::systemStyleEnabled()
+{
+    return QSettings().value(UseSystemStyleKey, false).toBool();
+}
+
+void Manager::setSystemStyleEnabled(bool enabled)
+{
+    QSettings().setValue(UseSystemStyleKey, enabled);
+}
+
+bool Manager::startsWithSystemStyle()
+{
+    return systemStyleEnabled() && QSettings().value(UseSystemColorsKey, false).toBool();
+}
+
+std::optional<QColor> Manager::systemColor(Token token) const
+{
+    const QPalette palette = qApp->palette();
+    if (const auto role = descriptor(token).role)
+        return palette.color(*role);
+    if (token == Token::DisabledText)
+        return palette.color(QPalette::Disabled, QPalette::Text);
+    if (overrides.contains(token))
+        return std::nullopt;
+
+    if (token == Token::MentionText)
+        return palette.color(QPalette::Link);
+    if (token == Token::MentionBg) {
+        QColor tint = palette.color(QPalette::Link);
+        tint.setAlpha(descriptor(token).defaultColor.alpha());
+        return tint;
+    }
+    return std::nullopt;
+}
+
+bool Manager::eventFilter(QObject *watched, QEvent *event)
+{
+    if (event->type() == QEvent::ApplicationPaletteChange && watched == qApp && systemColors && !applying && qApp->palette() != styledPalette)
+        restyle();
+    return QObject::eventFilter(watched, event);
+}
+
 bool Manager::hasFontOverride(FontRole role) const
 {
     return fontOverrides.contains(role);
@@ -85,10 +159,10 @@ QPalette Manager::buildPalette() const
 
     for (const TokenDescriptor &d : registry()) {
         if (d.role.has_value())
-            pal.setColor(*d.role, color(d.token));
+            pal.setColor(*d.role, customColor(d.token));
     }
 
-    const QColor disabled = color(Token::DisabledText);
+    const QColor disabled = customColor(Token::DisabledText);
     pal.setColor(QPalette::Disabled, QPalette::WindowText, disabled);
     pal.setColor(QPalette::Disabled, QPalette::Text, disabled);
     pal.setColor(QPalette::Disabled, QPalette::ButtonText, disabled);
@@ -100,7 +174,21 @@ QPalette Manager::buildPalette() const
 
 void Manager::apply()
 {
-    qApp->setPalette(buildPalette());
+    if (!watchingApplication) {
+        qApp->installEventFilter(this);
+        watchingApplication = true;
+    }
+
+    {
+        QScopedValueRollback<bool> guard(applying, true);
+        qApp->setPalette(systemColors ? QPalette() : buildPalette());
+    }
+    restyle();
+}
+
+void Manager::restyle()
+{
+    styledPalette = qApp->palette();
     qApp->setStyleSheet(buildStyleSheet());
     emit themeChanged();
 }
@@ -128,7 +216,7 @@ QJsonObject Manager::toObject(bool includeDefaults) const
     for (const TokenDescriptor &d : registry()) {
         if (!includeDefaults && !overrides.contains(d.token))
             continue;
-        const QColor c = color(d.token);
+        const QColor c = customColor(d.token);
         const QString hex = c.name(c.alpha() == 255 ? QColor::HexRgb : QColor::HexArgb);
         obj[QString::fromUtf8(d.id)] = hex;
     }
@@ -165,6 +253,7 @@ bool Manager::load()
 {
     overrides.clear();
     fontOverrides.clear();
+    systemColors = QSettings().value(UseSystemColorsKey, false).toBool();
     QFile file(defaultThemePath());
     if (!file.open(QIODevice::ReadOnly))
         return false;

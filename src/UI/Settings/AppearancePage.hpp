@@ -8,8 +8,11 @@
 #include "Core/Theme/Fonts.hpp"
 #include "Core/Theme/Tokens.hpp"
 
+class QCheckBox;
 class QFontComboBox;
+class QGroupBox;
 class QSpinBox;
+class QToolButton;
 
 namespace Acheron {
 namespace UI {
@@ -25,10 +28,14 @@ signals:
 
 private:
     void rebuildSwatches();
+    void updateColorEditors();
     void refreshFontControls();
     void generateInto(const QColor &seed, int schemeIndex, bool dark);
 
     QHash<Core::Theme::Token, QPushButton *> swatches;
+    QHash<Core::Theme::Token, QToolButton *> colorResets;
+    QGroupBox *generatorGroup = nullptr;
+    QCheckBox *systemStyle = nullptr;
     QHash<Core::Theme::FontRole, QFontComboBox *> familyCombos;
     QHash<Core::Theme::FontRole, QSpinBox *> sizeSpins;
 

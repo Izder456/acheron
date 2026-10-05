@@ -7,6 +7,8 @@
 #include <QPalette>
 #include <QString>
 
+#include <optional>
+
 #include "Core/Theme/Fonts.hpp"
 #include "Core/Theme/Tokens.hpp"
 
@@ -31,6 +33,14 @@ public:
     void resetAll();
     void setOverrides(const QHash<Token, QColor> &overrides);
 
+    bool usesSystemColors() const;
+    void setUseSystemColors(bool enabled);
+    bool isSystemControlled(Token token) const;
+
+    static bool systemStyleEnabled();
+    static void setSystemStyleEnabled(bool enabled);
+    static bool startsWithSystemStyle();
+
     bool hasFontOverride(FontRole role) const;
     void setFontOverride(FontRole role, const QFont &font);
     void clearFontOverride(FontRole role);
@@ -49,6 +59,9 @@ signals:
     void themeChanged();
     void metricsChanged();
 
+protected:
+    bool eventFilter(QObject *watched, QEvent *event) override;
+
 private:
     Manager() = default;
     Q_DISABLE_COPY(Manager)
@@ -56,9 +69,17 @@ private:
     static QString defaultThemePath();
     QJsonObject toObject(bool includeDefaults) const;
     void loadFromObject(const QJsonObject &obj);
+    QColor customColor(Token token) const;
+    std::optional<QColor> systemColor(Token token) const;
+    void restyle();
 
     QHash<Token, QColor> overrides;
     QHash<FontRole, QFont> fontOverrides;
+
+    bool systemColors = false;
+    bool watchingApplication = false;
+    bool applying = false;
+    QPalette styledPalette;
 };
 
 } // namespace Theme
